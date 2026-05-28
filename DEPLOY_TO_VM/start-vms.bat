@@ -1,15 +1,27 @@
 @echo off
-echo Starting SMART VISITOR Management System (Standalone)...
-cd %~dp0
-if not exist ".next\standalone" (
-    echo Error: Standalone build not found. Please run "npm run build" first.
+echo Starting SMART VISITOR Management System...
+setlocal
+cd /d %~dp0
+
+:: Check if node_modules exists
+if not exist "node_modules" (
+    echo [INFO] Installing dependencies...
+    npm install
+    if errorlevel 1 (
+        echo [ERROR] npm install failed.
+        pause
+        exit /b 1
+    )
+)
+
+:: Build the project
+echo [INFO] Building the project...
+npm run build
+if errorlevel 1 (
+    echo [ERROR] Build failed. Please check the errors above.
     pause
     exit /b 1
 )
-
-:: Copy public and static files if missing (Next.js standalone requirement)
-if not exist ".next\standalone\public" xcopy /s /e /i "public" ".next\standalone\public"
-if not exist ".next\standalone\.next\static" xcopy /s /e /i ".next\static" ".next\standalone\.next\static"
 
 echo.
 echo Application will be available at http://localhost:6001
@@ -17,5 +29,6 @@ echo Press Ctrl+C to stop the server.
 echo.
 
 set PORT=6001
-node .next\standalone\server.js
+npm run start
+endlocal
 pause
