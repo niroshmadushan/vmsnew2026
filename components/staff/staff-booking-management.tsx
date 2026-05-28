@@ -1,0 +1,3940 @@
+"use client"
+
+import type React from "react"
+
+import { useState, useEffect } from "react"
+import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import { Textarea } from "@/components/ui/textarea"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Badge } from "@/components/ui/badge"
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Alert, AlertDescription } from "@/components/ui/alert"
+import { Progress } from "@/components/ui/progress"
+import { Plus, Edit, Trash2, Calendar, Clock, MapPin, Users, X, Search, AlertTriangle, Loader2, Utensils, Mail, Send, Info, Lock, CheckCircle } from "lucide-react"
+import { Avatar, AvatarFallback } from "@/components/ui/avatar"
+import { placeManagementAPI } from "@/lib/place-management-api"
+import { bookingEmailAPI, type BookingParticipant } from "@/lib/booking-email-api"
+import toast from "react-hot-toast"
+import { useAuth } from "@/lib/auth-context"
+
+// UUID generator function (compatible with all environments)
+const generateUUID = (): string => {
+  if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+    return crypto.randomUUID()
+  }
+  // Fallback UUID v4 generator
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
+    const r = Math.random() * 16 | 0
+    const v = c === 'x' ? r : (r & 0x3 | 0x8)
+    return v.toString(16)
+  })
+}
+
+
+interface ExternalParticipant {
+  id: string
+  fullName: string
+  email: string
+  phone: string
+  referenceType: "NIC" | "Passport" | "Employee ID"
+  referenceValue: string
+  companyName?: string
+}
+
+interface RefreshmentDetails {
+  required: boolean
+  type: string
+  items: string[]
+  servingTime: string
+  specialRequests: string
+  estimatedCount: number
+}
+
+interface Employee {
+  id: string
+  name: string
+  email: string
+  department: string
+  role: string
+  phone: string
+}
+
+interface UserProfile {
+  id: string
+  email: string
+  full_name: string
+  role: string
+}
+
+interface Place {
+  id: string
+  name: string
+  description: string
+  city: string
+  state: string
+  place_type: string
+  capacity: number
+  is_active: boolean
+}
+
+interface PlaceConfiguration {
+  id: string
+  place_id: string
+  available_monday: boolean
+  available_tuesday: boolean
+  available_wednesday: boolean
+  available_thursday: boolean
+  available_friday: boolean
+  available_saturday: boolean
+  available_sunday: boolean
+  start_time: string
+  end_time: string
+  allow_bookings: boolean
+  max_bookings_per_day: number
+  booking_slot_duration: number
+}
+
+interface AvailablePlace extends Place {
+  configuration?: PlaceConfiguration
+  isAvailableForDate?: boolean
+  operatingHours?: string
+}
+
+// Generate 100+ mock employees
+const generateMockEmployees = (): Employee[] => {
+  const departments = [
+    "Engineering",
+    "Marketing",
+    "Sales",
+    "HR",
+    "Finance",
+    "Operations",
+    "Design",
+    "Legal",
+    "IT Support",
+    "Customer Success",
+  ]
+  const roles = [
+    "Manager",
+    "Senior",
+    "Junior",
+    "Lead",
+    "Director",
+    "Specialist",
+    "Coordinator",
+    "Analyst",
+    "Executive",
+    "Associate",
+  ]
+  const firstNames = [
+    "John",
+    "Sarah",
+    "Mike",
+    "Lisa",
+    "David",
+    "Emma",
+    "James",
+    "Anna",
+    "Robert",
+    "Maria",
+    "Chris",
+    "Jennifer",
+    "Michael",
+    "Jessica",
+    "William",
+    "Ashley",
+    "Daniel",
+    "Amanda",
+    "Matthew",
+    "Stephanie",
+    "Andrew",
+    "Nicole",
+    "Joshua",
+    "Elizabeth",
+    "Christopher",
+    "Megan",
+    "Anthony",
+    "Rachel",
+    "Mark",
+    "Lauren",
+    "Steven",
+    "Samantha",
+    "Paul",
+    "Brittany",
+    "Kenneth",
+    "Danielle",
+    "Kevin",
+    "Rebecca",
+    "Brian",
+    "Katherine",
+  ]
+  const lastNames = [
+    "Smith",
+    "Johnson",
+    "Williams",
+    "Brown",
+    "Jones",
+    "Garcia",
+    "Miller",
+    "Davis",
+    "Rodriguez",
+    "Martinez",
+    "Hernandez",
+    "Lopez",
+    "Gonzalez",
+    "Wilson",
+    "Anderson",
+    "Thomas",
+    "Taylor",
+    "Moore",
+    "Jackson",
+    "Martin",
+    "Lee",
+    "Perez",
+    "Thompson",
+    "White",
+    "Harris",
+    "Sanchez",
+    "Clark",
+    "Ramirez",
+    "Lewis",
+    "Robinson",
+    "Walker",
+    "Young",
+    "Allen",
+    "King",
+    "Wright",
+    "Scott",
+    "Torres",
+    "Nguyen",
+    "Hill",
+    "Flores",
+  ]
+
+  const employees: Employee[] = []
+
+  for (let i = 1; i <= 120; i++) {
+    const firstName = firstNames[Math.floor(Math.random() * firstNames.length)]
+    const lastName = lastNames[Math.floor(Math.random() * lastNames.length)]
+    const department = departments[Math.floor(Math.random() * departments.length)]
+    const role = roles[Math.floor(Math.random() * roles.length)]
+
+    employees.push({
+      id: `emp-${i}`,
+      name: `${firstName} ${lastName}`,
+      email: `${firstName.toLowerCase()}.${lastName.toLowerCase()}@company.com`,
+      department,
+      role,
+      phone: `+1${Math.floor(Math.random() * 9000000000) + 1000000000}`,
+    })
+  }
+
+  return employees
+}
+
+const mockEmployees = generateMockEmployees()
+
+interface BookingCancellation {
+  id: string
+  booking_id: string
+  cancelled_by: string
+  cancellation_reason: string
+  cancellation_type: string
+  cancelled_at: string
+}
+
+interface Booking {
+  id: string
+  bookingRefId?: string // 6-character reference ID
+  title: string
+  description: string
+  date: string
+  place: string // place name for display
+  placeId?: string // place ID for form
+  startTime: string
+  endTime: string
+  responsiblePerson: Employee | null
+  selectedEmployees: Employee[]
+  externalParticipants: ExternalParticipant[]
+  refreshments?: RefreshmentDetails
+  status: "upcoming" | "ongoing" | "completed" | "cancelled"
+  createdBy: string
+  createdAt: string
+  totalParticipantsCount?: number // From database for accurate display
+  internalParticipantsCount?: number
+  externalParticipantsCount?: number
+  cancellation?: BookingCancellation // Cancellation details if cancelled
+}
+
+const mockPlaces = [
+  { id: "1", name: "Conference Room A" },
+  { id: "2", name: "Meeting Room B" },
+  { id: "3", name: "Board Room" },
+]
+
+const initialBookings: Booking[] = [
+  {
+    id: "1",
+    title: "Weekly Team Meeting",
+    description: "Regular team sync and updates",
+    date: "2024-12-10",
+    place: "Conference Room A",
+    startTime: "10:00",
+    endTime: "11:00",
+    responsiblePerson: mockEmployees[0],
+    selectedEmployees: [mockEmployees[0], mockEmployees[1]],
+    externalParticipants: [
+      {
+        id: "1",
+        fullName: "David Wilson",
+        email: "david@external.com",
+        phone: "+1234567890",
+        referenceType: "NIC",
+        referenceValue: "123456789V",
+      },
+    ],
+    refreshments: {
+      required: true,
+      type: "Light Refreshments",
+      items: ["Coffee", "Tea", "Cookies"],
+      servingTime: "10:15",
+      specialRequests: "Vegetarian options required",
+      estimatedCount: 5,
+    },
+    status: "upcoming",
+    createdBy: "John Admin",
+    createdAt: "2024-12-05",
+  },
+  {
+    id: "2",
+    title: "Client Presentation",
+    description: "Product demo for potential client",
+    date: "2024-12-11",
+    place: "Board Room",
+    startTime: "14:00",
+    endTime: "15:30",
+    responsiblePerson: mockEmployees[2],
+    selectedEmployees: [mockEmployees[2]],
+    externalParticipants: [
+      {
+        id: "2",
+        fullName: "Jane Smith",
+        email: "jane@client.com",
+        phone: "+1234567891",
+        referenceType: "Passport",
+        referenceValue: "A12345678",
+      },
+      {
+        id: "3",
+        fullName: "Robert Brown",
+        email: "robert@client.com",
+        phone: "+1234567892",
+        referenceType: "Employee ID",
+        referenceValue: "EMP001",
+      },
+    ],
+    refreshments: {
+      required: true,
+      type: "Full Catering",
+      items: ["Lunch", "Beverages", "Dessert"],
+      servingTime: "14:30",
+      specialRequests: "Halal and vegetarian options",
+      estimatedCount: 8,
+    },
+    status: "upcoming",
+    createdBy: "Lisa Johnson",
+    createdAt: "2024-12-06",
+  },
+]
+
+export function StaffBookingManagement() {
+  const { user } = useAuth()
+  const [bookings, setBookings] = useState<Booking[]>([])
+  const [filteredBookings, setFilteredBookings] = useState<Booking[]>([])
+  const [isLoadingBookings, setIsLoadingBookings] = useState(false)
+  const [loadingProgress, setLoadingProgress] = useState(0)
+  const [bookingsError, setBookingsError] = useState<string | null>(null)
+
+  // Filter state
+  const [statusFilter, setStatusFilter] = useState<string>("all")
+  const [placeFilter, setPlaceFilter] = useState<string>("all")
+  const [filterDateFrom, setFilterDateFrom] = useState<string>("")
+  const [filterDateTo, setFilterDateTo] = useState<string>("")
+  const [searchTerm, setSearchTerm] = useState<string>("")
+
+  // Confirmation dialog state
+  const [isConfirmDialogOpen, setIsConfirmDialogOpen] = useState(false)
+  const [confirmAction, setConfirmAction] = useState<(() => void) | null>(null)
+  const [confirmMessage, setConfirmMessage] = useState("")
+  const [confirmTitle, setConfirmTitle] = useState("")
+  const [cancellationReason, setCancellationReason] = useState("")
+  const [isCancellationDialog, setIsCancellationDialog] = useState(false)
+  const [bookingToCancel, setBookingToCancel] = useState<string | null>(null)
+  const [isCancellationReasonDialogOpen, setIsCancellationReasonDialogOpen] = useState(false)
+  const [selectedCancellation, setSelectedCancellation] = useState<BookingCancellation | null>(null)
+  const [isDialogOpen, setIsDialogOpen] = useState(false)
+  const [editingBooking, setEditingBooking] = useState<Booking | null>(null)
+  const [activeTab, setActiveTab] = useState("list")
+
+  // Email notification state
+  const [isEmailDialogOpen, setIsEmailDialogOpen] = useState(false)
+  const [selectedBookingForEmail, setSelectedBookingForEmail] = useState<Booking | null>(null)
+  const [isEmailAlertDialogOpen, setIsEmailAlertDialogOpen] = useState(false)
+  const [emailAlertMessage, setEmailAlertMessage] = useState("")
+  const [emailAlertType, setEmailAlertType] = useState<"success" | "error">("success")
+  const [selectedEmailParticipants, setSelectedEmailParticipants] = useState<string[]>([])
+  const [isSendingEmails, setIsSendingEmails] = useState(false)
+  const [bookingParticipants, setBookingParticipants] = useState<BookingParticipant[]>([])
+  const [isLoadingParticipants, setIsLoadingParticipants] = useState(false)
+  const [emailType, setEmailType] = useState<'booking_details'>('booking_details')
+
+  // Available Places State
+  const [availablePlaces, setAvailablePlaces] = useState<AvailablePlace[]>([])
+  const [isLoadingPlaces, setIsLoadingPlaces] = useState(false)
+  const [placesError, setPlacesError] = useState<string | null>(null)
+  const [selectedDate, setSelectedDate] = useState<string>('')
+
+  // Available Time Slots State (old fixed slot system - keeping for reference)
+  const [availableTimeSlots, setAvailableTimeSlots] = useState<string[]>([])
+  const [selectedTimeSlot, setSelectedTimeSlot] = useState<string>("")
+
+  // Flexible Time Selection State
+  const [availableStartTimes, setAvailableStartTimes] = useState<string[]>([])
+  const [availableEndTimes, setAvailableEndTimes] = useState<string[]>([])
+  const [minBookingDuration, setMinBookingDuration] = useState<number>(30) // Default 30 minutes
+  const [currentPlaceConfig, setCurrentPlaceConfig] = useState<PlaceConfiguration | null>(null)
+
+  // Available Time Gaps (complete ranges)
+  const [availableTimeGaps, setAvailableTimeGaps] = useState<{ start: string, end: string, duration: string }[]>([])
+  const [selectedTimeGap, setSelectedTimeGap] = useState<string>("")
+
+  // Users (Admin & Employee) State
+  const [users, setUsers] = useState<UserProfile[]>([])
+  const [isLoadingUsers, setIsLoadingUsers] = useState(false)
+
+  const [formData, setFormData] = useState({
+    title: "",
+    description: "",
+    date: "",
+    place: "",
+    startTime: "",
+    endTime: "",
+    responsiblePerson: null as Employee | null,
+    selectedEmployees: [] as Employee[],
+    externalParticipants: [] as ExternalParticipant[],
+    refreshments: {
+      required: false,
+      type: "",
+      items: [] as string[],
+      servingTime: "",
+      specialRequests: "",
+      estimatedCount: 0,
+    },
+  })
+
+  const [employeeSearch, setEmployeeSearch] = useState("")
+  const [showEmployeeDropdown, setShowEmployeeDropdown] = useState(false)
+  const [responsibleSearch, setResponsibleSearch] = useState("")
+  const [showResponsibleDropdown, setShowResponsibleDropdown] = useState(false)
+
+  const [newExternalParticipant, setNewExternalParticipant] = useState({
+    fullName: "",
+    email: "",
+    phone: "",
+    referenceType: "NIC" as "NIC" | "Passport" | "Employee ID",
+    referenceValue: "",
+  })
+
+  const [filteredEmployees, setFilteredEmployees] = useState<Employee[]>([])
+
+  // Real-time clock for timeline view
+  const [currentTime, setCurrentTime] = useState(new Date())
+
+  useEffect(() => {
+    // Update time every second
+    const timer = setInterval(() => {
+      setCurrentTime(new Date())
+    }, 1000)
+
+    return () => clearInterval(timer)
+  }, [])
+
+  // Load users on component mount
+  useEffect(() => {
+    fetchUsers()
+  }, [])
+
+  // Fetch users (admin and employee roles) from userprofile table
+  const fetchUsers = async () => {
+    try {
+      setIsLoadingUsers(true)
+
+      // Fetch all users and filter by role on frontend
+      // This ensures compatibility with all API versions
+      const allUsersResponse = await placeManagementAPI.getTableData('userprofile', {
+        limit: 500
+      })
+
+      // Filter for admin and employee roles only
+      const filteredUsers = allUsersResponse.filter((user: any) =>
+        user.role === 'admin' || user.role === 'employee'
+      )
+
+      setUsers(filteredUsers)
+
+      if (filteredUsers.length === 0) {
+        toast('No admin or employee users found in the system', {
+          position: 'top-center',
+          duration: 4000,
+          icon: '⚠️'
+        })
+      }
+    } catch (error: any) {
+      toast.error('Failed to load users', {
+        position: 'top-center',
+        duration: 3000,
+        icon: '❌'
+      })
+    } finally {
+      setIsLoadingUsers(false)
+    }
+  }
+
+  // Function to get day of week from date
+  const getDayOfWeek = (dateString: string): string => {
+    const date = new Date(dateString)
+    const days = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday']
+    return days[date.getDay()]
+  }
+
+  // Fetch places that are available for the selected date
+  const fetchAvailablePlaces = async (dateString: string) => {
+    try {
+      setIsLoadingPlaces(true)
+      setPlacesError(null)
+
+      const dayOfWeek = getDayOfWeek(dateString)
+
+      // Step 1: Get all active places
+      const allPlaces = await placeManagementAPI.getPlaces({
+        isActive: true,
+        limit: 100
+      })
+
+      // Step 2: Get configurations for all places
+      const configurationsResponse = await placeManagementAPI.getTableData('place_configuration', {
+        limit: 100
+      })
+
+      // Step 3: Filter places based on date availability and booking settings
+      const availablePlacesForDate = allPlaces
+        .map((place: Place) => {
+          // Find configuration for this place
+          const config = configurationsResponse.find((c: any) => c.place_id === place.id)
+
+          if (!config) {
+            return null
+          }
+
+          // Check if bookings are allowed
+          if (!config.allow_bookings) {
+            return null
+          }
+
+          // Check if place is available on this day of week
+          const dayKey = `available_${dayOfWeek}` as keyof PlaceConfiguration
+          if (!config[dayKey]) {
+            return null
+          }
+
+          return {
+            ...place,
+            configuration: config,
+            isAvailableForDate: true,
+            operatingHours: `${config.start_time} - ${config.end_time}`
+          }
+        })
+        .filter((place: AvailablePlace | null): place is AvailablePlace => place !== null)
+
+      setAvailablePlaces(availablePlacesForDate)
+
+      if (availablePlacesForDate.length === 0) {
+        toast('No places available for the selected date', {
+          position: 'top-center',
+          duration: 3000,
+          icon: '📅'
+        })
+      }
+
+    } catch (error: any) {
+      const errorMessage = 'Failed to load available places'
+      setPlacesError(errorMessage)
+      toast.error(errorMessage, {
+        position: 'top-center',
+        duration: 4000,
+        icon: '❌'
+      })
+    } finally {
+      setIsLoadingPlaces(false)
+    }
+  }
+
+  // Fetch bookings from database (load all)
+  const fetchBookings = async (startDate?: string, endDate?: string, page: number = 1) => {
+    try {
+      setIsLoadingBookings(true)
+      setLoadingProgress(0)
+      setBookingsError(null)
+
+      const filters: any[] = [
+        { column: 'is_deleted', operator: 'equals', value: 0 }
+      ]
+
+      if (startDate && endDate) {
+        const start = new Date(startDate)
+        const end = new Date(endDate)
+        const diffTime = Math.abs(end.getTime() - start.getTime())
+        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24))
+        if (diffDays > 7) {
+          toast.error('Date range cannot exceed 7 days', {
+            position: 'top-center',
+            duration: 3000,
+            icon: '⚠️'
+          })
+          setIsLoadingBookings(false)
+          return
+        }
+      }
+
+      if (startDate) {
+        filters.push({ column: 'booking_date', operator: '>=', value: startDate })
+      }
+      if (endDate) {
+        filters.push({ column: 'booking_date', operator: '<=', value: endDate })
+      }
+
+      // Fetch bookings from database using recursive paging to bypass potential backend limits
+      let allBookingsData: any[] = []
+      let currentPage = 1
+      const BATCH_LIMIT = 100 // Safe limit to ensure we don't hit backend caps (likely 200)
+      let keepFetching = true
+
+      console.log('🔄 Starting recursive fetch with batch size:', BATCH_LIMIT)
+
+      while (keepFetching) {
+        setLoadingProgress(10 + (currentPage * 5)) // Increment progress mockingly
+
+        const bookingsResponse = await placeManagementAPI.getTableData('bookings', {
+          filters,
+          sortBy: 'booking_date',
+          sortOrder: 'desc',
+          limit: BATCH_LIMIT,
+          page: currentPage
+        })
+
+        const pageData = Array.isArray(bookingsResponse) ? bookingsResponse : []
+        console.log(`📦 Page ${currentPage} fetched: ${pageData.length} records`)
+
+        if (pageData.length > 0) {
+          allBookingsData = [...allBookingsData, ...pageData]
+        }
+
+        // If we got fewer records than the limit, we've reached the end
+        if (pageData.length < BATCH_LIMIT) {
+          keepFetching = false
+        } else {
+          // Check safety break (e.g. 50 pages = 5000 records) to prevent infinite loops
+          if (currentPage >= 50) {
+            console.warn('⚠️ Safety limit reached in recursive fetch')
+            keepFetching = false
+          }
+          currentPage++
+        }
+      }
+
+      console.log(`✅ Total bookings fetched from API: ${allBookingsData.length}`)
+
+      // Client-side filtering: creating a robust safety net since backend might be ignoring filters
+      // Filter out deleted items if they were returned
+      const activeBookings = allBookingsData.filter(b => b.is_deleted !== 1 && b.is_deleted !== true)
+
+      console.log(`🧹 Filtered active bookings: ${activeBookings.length} (Removed ${allBookingsData.length - activeBookings.length} deleted items)`)
+
+      setLoadingProgress(40) // 40%
+
+      let bookingsData: any[] = activeBookings
+
+
+      // Filter out missing bookings (is_missing_booking = 1 or true)
+      bookingsData = bookingsData.filter((b: any) =>
+        (b.is_missing_booking === 0 || b.is_missing_booking === false || b.is_missing_booking === null || b.is_missing_booking === undefined)
+      )
+
+
+      // Extract all booking IDs for batch fetching
+      const bookingIds = bookingsData.map((b: any) => b.id)
+      setLoadingProgress(40) // 40%
+
+      // Batch fetch ALL participants for these bookings (1 API call instead of N calls)
+      let allParticipants: any[] = []
+      if (bookingIds.length > 0) {
+        try {
+          const participantsResponse = await placeManagementAPI.getTableData('booking_participants', {
+            filters: [
+              { column: 'booking_id', operator: 'in', value: bookingIds },
+              { column: 'is_deleted', operator: 'equals', value: 0 }
+            ],
+            limit: 10000
+          })
+          allParticipants = Array.isArray(participantsResponse) ? participantsResponse : []
+        } catch (error) {
+          console.warn('Failed to batch fetch participants:', error)
+        }
+      }
+      setLoadingProgress(55) // 55%
+
+      // Batch fetch ALL external participants (1 API call instead of N calls)
+      let allExternalParticipants: any[] = []
+      if (bookingIds.length > 0) {
+        try {
+          const externalResponse = await placeManagementAPI.getTableData('external_participants', {
+            filters: [
+              { column: 'booking_id', operator: 'in', value: bookingIds },
+              { column: 'is_deleted', operator: 'equals', value: 0 }
+            ],
+            limit: 1000
+          })
+          allExternalParticipants = Array.isArray(externalResponse) ? externalResponse : []
+        } catch (error) {
+          console.warn('Failed to batch fetch external participants:', error)
+        }
+      }
+      setLoadingProgress(70) // 70%
+
+      // Batch fetch ALL refreshments (1 API call instead of N calls)
+      let allRefreshments: any[] = []
+      if (bookingIds.length > 0) {
+        try {
+          const refreshmentsResponse = await placeManagementAPI.getTableData('booking_refreshments', {
+            filters: [
+              { column: 'booking_id', operator: 'in', value: bookingIds }
+            ],
+            limit: 1000
+          })
+          allRefreshments = Array.isArray(refreshmentsResponse) ? refreshmentsResponse : []
+        } catch (error) {
+          console.warn('Failed to batch fetch refreshments:', error)
+        }
+      }
+      setLoadingProgress(85) // 85%
+
+      setLoadingProgress(95) // 95%
+
+      // Fetch ALL cancellations once at the start (more reliable than filtering per booking)
+      let allCancellations: any[] = []
+      try {
+        const allCancellationsResponse = await placeManagementAPI.getTableData('booking_cancellations', {
+          limit: 1000 // Get all cancellations
+        })
+
+        // Handle different response formats
+        if (Array.isArray(allCancellationsResponse)) {
+          allCancellations = allCancellationsResponse
+        } else if (allCancellationsResponse && allCancellationsResponse.data && Array.isArray(allCancellationsResponse.data)) {
+          allCancellations = allCancellationsResponse.data
+        } else if (allCancellationsResponse && allCancellationsResponse.success && Array.isArray(allCancellationsResponse.data)) {
+          allCancellations = allCancellationsResponse.data
+        }
+      } catch (error) {
+        // Silent fail - cancellations list will remain empty
+      }
+
+      // Transform database records to Booking interface
+      const transformedBookings: Booking[] = bookingsData.map((booking: any) => {
+        // Filter elements for this booking from batch-fetched data
+        const participants = allParticipants.filter(p => p.booking_id === booking.id)
+        const externalParticipants = allExternalParticipants.filter(p => p.booking_id === booking.id)
+        const refreshments = allRefreshments.filter(r => r.booking_id === booking.id)
+
+        // Find cancellation data from pre-fetched list
+        let cancellationData: BookingCancellation | undefined = undefined
+        const isCancelledStatus = booking.status?.toLowerCase() === 'cancelled'
+        if (isCancelledStatus) {
+          const matchingCancellation = allCancellations.find((c: any) =>
+            (c.booking_id === booking.id || c.bookingId === booking.id)
+          )
+
+          if (matchingCancellation) {
+            cancellationData = {
+              id: matchingCancellation.id,
+              booking_id: matchingCancellation.booking_id || matchingCancellation.bookingId || booking.id,
+              cancelled_by: matchingCancellation.cancelled_by || matchingCancellation.cancelledBy,
+              cancellation_reason: String(matchingCancellation.cancellation_reason || matchingCancellation.reason || '').trim(),
+              cancellation_type: matchingCancellation.cancellation_type || matchingCancellation.cancellationType || 'user_cancelled',
+              cancelled_at: matchingCancellation.cancelled_at || matchingCancellation.cancelledAt
+            }
+          }
+        }
+
+        // Transform participants
+        const selectedEmployees: Employee[] = participants.map((p: any) => ({
+          id: p.employee_id,
+          name: p.employee_name,
+          email: p.employee_email,
+          department: p.employee_department || '',
+          role: p.employee_role || '',
+          phone: p.employee_phone || ''
+        }))
+
+        // Transform external participants
+        const externalParticipantsList: ExternalParticipant[] = externalParticipants.map((p: any) => ({
+          id: p.id,
+          fullName: p.full_name,
+          email: p.email,
+          phone: p.phone,
+          referenceType: p.reference_type,
+          referenceValue: p.reference_value
+        }))
+
+        // Parse refreshments
+        const refreshmentsRequired = booking.refreshments_required === 1 || booking.refreshments_required === true
+        let refreshmentDetails: RefreshmentDetails = {
+          required: false,
+          type: '',
+          items: [],
+          servingTime: '',
+          specialRequests: '',
+          estimatedCount: 0
+        }
+
+        if (refreshmentsRequired && refreshments.length > 0) {
+          const r = refreshments[0]
+          refreshmentDetails = {
+            required: true,
+            type: r.refreshment_type || '',
+            items: r.items ? JSON.parse(r.items) : [],
+            servingTime: r.serving_time ? r.serving_time.substring(0, 5) : '',
+            specialRequests: r.special_requests || '',
+            estimatedCount: r.estimated_count || 0
+          }
+        }
+
+        // Create responsible person object
+        const responsiblePerson: Employee | null = booking.responsible_person_id ? {
+          id: booking.responsible_person_id,
+          name: booking.responsible_person_name || '',
+          email: booking.responsible_person_email || '',
+          department: '',
+          role: '',
+          phone: ''
+        } : null
+
+        // Normalize date format to YYYY-MM-DD
+        let normalizedDate = booking.booking_date
+        if (normalizedDate) {
+          const d = new Date(normalizedDate)
+          const year = d.getFullYear()
+          const month = String(d.getMonth() + 1).padStart(2, '0')
+          const day = String(d.getDate()).padStart(2, '0')
+          normalizedDate = `${year}-${month}-${day}`
+        }
+
+        return {
+          id: booking.id,
+          bookingRefId: booking.booking_ref_id,
+          title: booking.title,
+          description: booking.description || '',
+          date: normalizedDate,
+          place: booking.place_name,
+          placeId: booking.place_id,
+          startTime: (booking.start_time || '').substring(0, 5),
+          endTime: (booking.end_time || '').substring(0, 5),
+          responsiblePerson,
+          selectedEmployees,
+          externalParticipants: externalParticipantsList,
+          refreshments: refreshmentDetails,
+          status: booking.status === 'in-progress' ? 'ongoing' : booking.status,
+          createdBy: booking.created_by || 'Unknown',
+          createdAt: booking.created_at ? new Date(booking.created_at).toISOString().split('T')[0] : '',
+          totalParticipantsCount: selectedEmployees.length + externalParticipantsList.length,
+          internalParticipantsCount: selectedEmployees.length,
+          externalParticipantsCount: externalParticipantsList.length,
+          cancellation: cancellationData
+        }
+      })
+
+      setBookings(transformedBookings)
+      setLoadingProgress(100) // 100%
+    } catch (error: any) {
+      const errorMessage = 'Failed to load bookings'
+      setBookingsError(errorMessage)
+      toast.error(errorMessage, {
+        position: 'top-center',
+        duration: 4000,
+        icon: '❌'
+      })
+    } finally {
+      setIsLoadingBookings(false)
+    }
+  }
+
+  // Handle filter change
+  const handleFilterChange = () => {
+    const dateFrom = (document.getElementById('dateFrom') as HTMLInputElement)?.value
+    const dateTo = (document.getElementById('dateTo') as HTMLInputElement)?.value
+    fetchBookings(dateFrom, dateTo, 1)
+  }
+
+  // Fetch bookings on mount or when page/filters change
+  useEffect(() => {
+    // Initial load - Fetch ALL bookings (empty dates = no date filter)
+    fetchBookings("", "", 1)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // Generate available time gaps (complete ranges between bookings)
+  const generateAvailableTimeGaps = (placeId: string, date: string) => {
+    const selectedPlace = availablePlaces.find(p => p.id === placeId)
+
+    if (!selectedPlace || !selectedPlace.configuration) {
+      setAvailableTimeGaps([])
+      setCurrentPlaceConfig(null)
+      return
+    }
+
+    const config = selectedPlace.configuration
+    setCurrentPlaceConfig(config)
+
+    const minDuration = config.booking_slot_duration || 30
+    setMinBookingDuration(minDuration)
+
+    const openTime = config.start_time.substring(0, 5) // HH:MM
+    const closeTime = config.end_time.substring(0, 5)
+
+    // Helper functions
+    const timeToMinutes = (time: string) => {
+      const [hours, minutes] = time.split(':').map(Number)
+      return hours * 60 + minutes
+    }
+
+    const minutesToTime = (minutes: number) => {
+      const hours = Math.floor(minutes / 60)
+      const mins = minutes % 60
+      return `${hours.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}`
+    }
+
+    const formatDuration = (minutes: number) => {
+      const hours = Math.floor(minutes / 60)
+      const mins = minutes % 60
+      if (hours > 0 && mins > 0) {
+        return `${hours}h ${mins}min`
+      } else if (hours > 0) {
+        return `${hours}h`
+      } else {
+        return `${mins}min`
+      }
+    }
+
+    const openMinutes = timeToMinutes(openTime)
+    const closeMinutes = timeToMinutes(closeTime)
+
+    // Get existing bookings for this date and place, sorted by start time
+    const existingBookings = bookings.filter(booking => {
+      // Match by place ID if available, fallback to place name
+      const placeMatches = booking.placeId ? booking.placeId === placeId : booking.place === selectedPlace.name
+
+      if (booking.date !== date) {
+        return false
+      }
+
+      if (!placeMatches) {
+        return false
+      }
+
+      if (booking.status === 'cancelled') {
+        return false
+      }
+
+      if (editingBooking && booking.id === editingBooking.id) {
+        return false
+      }
+
+      return true
+    }).map(booking => ({
+      start: timeToMinutes(booking.startTime),
+      end: timeToMinutes(booking.endTime),
+      title: booking.title
+    })).sort((a, b) => a.start - b.start)
+
+    // Find gaps between bookings
+    const gaps: { start: string, end: string, duration: string }[] = []
+
+    let currentTime = openMinutes
+
+    for (const booking of existingBookings) {
+      // Check if there's a gap before this booking
+      if (currentTime < booking.start) {
+        const gapDuration = booking.start - currentTime
+
+        // Only add gap if it meets minimum duration
+        if (gapDuration >= minDuration) {
+          gaps.push({
+            start: minutesToTime(currentTime),
+            end: minutesToTime(booking.start),
+            duration: formatDuration(gapDuration)
+          })
+        }
+      }
+
+      // Move current time to end of this booking
+      currentTime = Math.max(currentTime, booking.end)
+    }
+
+    // Check if there's a gap after the last booking until closing
+    if (currentTime < closeMinutes) {
+      const gapDuration = closeMinutes - currentTime
+
+      if (gapDuration >= minDuration) {
+        gaps.push({
+          start: minutesToTime(currentTime),
+          end: minutesToTime(closeMinutes),
+          duration: formatDuration(gapDuration)
+        })
+      }
+    }
+
+    setAvailableTimeGaps(gaps)
+  }
+
+  // Generate available start times (flexible booking) - OLD SYSTEM
+  const generateAvailableStartTimes = (placeId: string, date: string) => {
+    const selectedPlace = availablePlaces.find(p => p.id === placeId)
+
+    if (!selectedPlace || !selectedPlace.configuration) {
+      setAvailableStartTimes([])
+      setCurrentPlaceConfig(null)
+      return
+    }
+
+    const config = selectedPlace.configuration
+    setCurrentPlaceConfig(config)
+
+    // Use slot duration as both interval and minimum duration
+    const slotInterval = config.booking_slot_duration || 30
+    const minDuration = config.booking_slot_duration || 30 // Minimum duration = slot duration
+    setMinBookingDuration(minDuration)
+
+    // Parse operating hours
+    const openTime = config.start_time.substring(0, 5) // HH:MM
+    const closeTime = config.end_time.substring(0, 5)
+
+    // Helper functions
+    const timeToMinutes = (time: string) => {
+      const [hours, minutes] = time.split(':').map(Number)
+      return hours * 60 + minutes
+    }
+
+    const minutesToTime = (minutes: number) => {
+      const hours = Math.floor(minutes / 60)
+      const mins = minutes % 60
+      return `${hours.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}`
+    }
+
+    const openMinutes = timeToMinutes(openTime)
+    const closeMinutes = timeToMinutes(closeTime)
+
+    // Get existing bookings for this date and place
+    const existingBookings = bookings.filter(booking => {
+      if (booking.date !== date || booking.place !== selectedPlace.name) return false
+      if (booking.status === 'cancelled') return false
+      if (editingBooking && booking.id === editingBooking.id) return false
+      return true
+    }).map(booking => ({
+      start: timeToMinutes(booking.startTime),
+      end: timeToMinutes(booking.endTime)
+    })).sort((a, b) => a.start - b.start)
+
+    // Generate all possible time points with the interval
+    const allTimes: string[] = []
+    for (let time = openMinutes; time < closeMinutes; time += slotInterval) {
+      allTimes.push(minutesToTime(time))
+    }
+
+    // Filter start times that have at least minDuration available
+    const availableStarts = allTimes.filter(time => {
+      const startMin = timeToMinutes(time)
+      const minEndMin = startMin + minDuration
+
+      // Check if minimum duration fits before closing
+      if (minEndMin > closeMinutes) {
+        return false
+      }
+
+      // Check if there's any booking that would prevent minimum duration
+      const hasConflict = existingBookings.some(booking => {
+        // If booking starts before our minimum end time and ends after our start time
+        return booking.start < minEndMin && booking.end > startMin
+      })
+
+      return !hasConflict
+    })
+
+    setAvailableStartTimes(availableStarts)
+  }
+
+  // Generate available end times based on selected start time
+  const generateAvailableEndTimes = (placeId: string, date: string, startTime: string) => {
+    const selectedPlace = availablePlaces.find(p => p.id === placeId)
+
+    if (!selectedPlace || !selectedPlace.configuration) {
+      setAvailableEndTimes([])
+      return
+    }
+
+    const config = selectedPlace.configuration
+    const slotInterval = config.booking_slot_duration || 30
+    const closeTime = config.end_time.substring(0, 5)
+
+    // Helper functions
+    const timeToMinutes = (time: string) => {
+      const [hours, minutes] = time.split(':').map(Number)
+      return hours * 60 + minutes
+    }
+
+    const minutesToTime = (minutes: number) => {
+      const hours = Math.floor(minutes / 60)
+      const mins = minutes % 60
+      return `${hours.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}`
+    }
+
+    const startMinutes = timeToMinutes(startTime)
+    const closeMinutes = timeToMinutes(closeTime)
+    const minEndMinutes = startMinutes + minBookingDuration
+
+    // Get existing bookings
+    const existingBookings = bookings.filter(booking => {
+      if (booking.date !== date || booking.place !== selectedPlace.name) return false
+      if (booking.status === 'cancelled') return false
+      if (editingBooking && booking.id === editingBooking.id) return false
+      return true
+    }).map(booking => ({
+      start: timeToMinutes(booking.startTime),
+      end: timeToMinutes(booking.endTime)
+    })).sort((a, b) => a.start - b.start)
+
+    // Find the next booking after our start time
+    const nextBooking = existingBookings.find(booking => booking.start >= startMinutes)
+    const maxEndMinutes = nextBooking ? nextBooking.start : closeMinutes
+
+    // Generate available end times
+    const availableEnds: string[] = []
+    for (let time = minEndMinutes; time <= maxEndMinutes; time += slotInterval) {
+      if (time <= closeMinutes) {
+        availableEnds.push(minutesToTime(time))
+      }
+    }
+
+    setAvailableEndTimes(availableEnds)
+  }
+
+  // Generate time slots based on place configuration (OLD SYSTEM - DEPRECATED)
+  const generateTimeSlots = (placeId: string, date: string) => {
+    const selectedPlace = availablePlaces.find(p => p.id === placeId)
+
+    if (!selectedPlace || !selectedPlace.configuration) {
+      setAvailableTimeSlots([])
+      return
+    }
+
+    const config = selectedPlace.configuration
+    const slotDuration = config.booking_slot_duration || 60 // Default 60 minutes
+
+    // Parse operating hours
+    const startTime = config.start_time.substring(0, 5) // HH:MM:SS -> HH:MM
+    const endTime = config.end_time.substring(0, 5)
+
+    // Convert time to minutes
+    const timeToMinutes = (time: string) => {
+      const [hours, minutes] = time.split(':').map(Number)
+      return hours * 60 + minutes
+    }
+
+    // Convert minutes to time
+    const minutesToTime = (minutes: number) => {
+      const hours = Math.floor(minutes / 60)
+      const mins = minutes % 60
+      return `${hours.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}`
+    }
+
+    const startMinutes = timeToMinutes(startTime)
+    const endMinutes = timeToMinutes(endTime)
+
+    // Generate all possible slots
+    const allSlots: string[] = []
+    for (let time = startMinutes; time < endMinutes; time += slotDuration) {
+      const slotStart = minutesToTime(time)
+      const slotEnd = minutesToTime(time + slotDuration)
+
+      // Don't add slot if it exceeds end time
+      if (time + slotDuration <= endMinutes) {
+        allSlots.push(`${slotStart} - ${slotEnd}`)
+      }
+    }
+
+    // Filter out booked slots
+    const availableSlots = allSlots.filter(slot => {
+      const [slotStart, slotEnd] = slot.split(' - ')
+
+      // Check if this slot overlaps with any existing booking
+      const hasConflict = bookings.some(booking => {
+        if (booking.date !== date || booking.place !== selectedPlace.name) {
+          return false
+        }
+
+        if (booking.status === 'cancelled') {
+          return false
+        }
+
+        // Skip current booking if editing
+        if (editingBooking && booking.id === editingBooking.id) {
+          return false
+        }
+
+        const bookingStart = booking.startTime
+        const bookingEnd = booking.endTime
+
+        // Check for overlap
+        const overlap = (
+          (slotStart >= bookingStart && slotStart < bookingEnd) ||
+          (slotEnd > bookingStart && slotEnd <= bookingEnd) ||
+          (slotStart <= bookingStart && slotEnd >= bookingEnd)
+        )
+
+        // Check for overlap
+
+        return overlap
+      })
+
+      return !hasConflict
+    })
+
+    setAvailableTimeSlots(availableSlots)
+  }
+
+  // Fetch available places when date is selected
+  useEffect(() => {
+    if (formData.date) {
+      fetchAvailablePlaces(formData.date)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [formData.date])
+
+  // Generate time gaps when place is selected
+  useEffect(() => {
+    if (formData.place && formData.date) {
+      generateAvailableTimeGaps(formData.place, formData.date)
+    } else {
+      setAvailableTimeGaps([])
+      setSelectedTimeGap("")
+      setFormData(prev => ({ ...prev, startTime: '', endTime: '' }))
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [formData.place, formData.date, bookings])
+
+  // Populate form when editingBooking changes
+  useEffect(() => {
+    if (editingBooking) {
+      setFormData({
+        title: editingBooking.title || '',
+        description: editingBooking.description || '',
+        date: editingBooking.date || '',
+        startTime: editingBooking.startTime || '',
+        endTime: editingBooking.endTime || '',
+        place: editingBooking.placeId || '',
+        responsiblePerson: editingBooking.responsiblePerson || null,
+        selectedEmployees: editingBooking.selectedEmployees || [],
+        externalParticipants: editingBooking.externalParticipants || [],
+        refreshments: editingBooking.refreshments || {
+          required: false,
+          type: '',
+          items: [],
+          servingTime: '',
+          specialRequests: '',
+          estimatedCount: 0
+        }
+      })
+      setIsDialogOpen(true)
+    } else {
+      // Reset form when not editing
+      setFormData({
+        title: '',
+        description: '',
+        date: '',
+        startTime: '',
+        endTime: '',
+        place: '',
+        responsiblePerson: null,
+        selectedEmployees: [],
+        externalParticipants: [],
+        refreshments: {
+          required: false,
+          type: '',
+          items: [],
+          servingTime: '',
+          specialRequests: '',
+          estimatedCount: 0
+        }
+      })
+    }
+  }, [editingBooking])
+
+  const handleEmployeeSearch = (searchTerm: string) => {
+    setEmployeeSearch(searchTerm)
+    if (searchTerm.length > 0) {
+      // Filter from real users fetched from userprofile table
+      const filtered = users
+        .filter(
+          (user) =>
+            user.full_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+            user.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
+            user.role.toLowerCase().includes(searchTerm.toLowerCase()),
+        )
+        .map((user) => ({
+          id: user.id,
+          name: user.full_name,
+          email: user.email,
+          department: user.role === 'admin' ? 'Administration' : 'General',
+          role: user.role,
+          phone: ''
+        }))
+        .slice(0, 10) // Limit to 10 results for performance
+      setFilteredEmployees(filtered)
+      setShowEmployeeDropdown(true)
+    } else {
+      setFilteredEmployees([])
+      setShowEmployeeDropdown(false)
+    }
+  }
+
+  const selectEmployee = (employee: Employee) => {
+    if (!formData.selectedEmployees.find((emp) => emp.id === employee.id)) {
+      setFormData({
+        ...formData,
+        selectedEmployees: [...formData.selectedEmployees, employee],
+      })
+    }
+    setEmployeeSearch("")
+    setShowEmployeeDropdown(false)
+    setFilteredEmployees([])
+  }
+
+  const removeEmployee = (employeeId: string) => {
+    setFormData({
+      ...formData,
+      selectedEmployees: formData.selectedEmployees.filter((emp) => emp.id !== employeeId),
+    })
+  }
+
+  const handleResponsiblePersonSelect = (employee: Employee) => {
+    setFormData({ ...formData, responsiblePerson: employee })
+    setResponsibleSearch(employee.name)
+    setShowResponsibleDropdown(false)
+  }
+
+  const handleResponsiblePersonRemove = () => {
+    setFormData({ ...formData, responsiblePerson: null })
+    setResponsibleSearch("")
+  }
+
+  const resetForm = () => {
+    setFormData({
+      title: "",
+      description: "",
+      date: "",
+      place: "",
+      startTime: "",
+      endTime: "",
+      responsiblePerson: null,
+      selectedEmployees: [],
+      externalParticipants: [],
+      refreshments: {
+        required: false,
+        type: "",
+        items: [],
+        servingTime: "",
+        specialRequests: "",
+        estimatedCount: 0,
+      },
+    })
+    setEmployeeSearch("")
+    setShowEmployeeDropdown(false)
+    setFilteredEmployees([])
+    setNewExternalParticipant({
+      fullName: "",
+      email: "",
+      phone: "",
+      referenceType: "NIC",
+      referenceValue: "",
+    })
+    setResponsibleSearch("")
+    setShowResponsibleDropdown(false)
+    setEditingBooking(null)
+    setSelectedTimeSlot("")
+    setAvailableTimeSlots([])
+    setAvailableStartTimes([])
+    setAvailableEndTimes([])
+    setAvailableTimeGaps([])
+    setSelectedTimeGap("")
+  }
+
+  const checkAvailability = (date: string, placeId: string, startTime: string, endTime: string, excludeId?: string) => {
+    // Find the selected place configuration
+    const selectedPlace = availablePlaces.find(p => p.id === placeId)
+
+    if (!selectedPlace || !selectedPlace.configuration) {
+      toast.error("Place configuration not found. Please select a valid place.", {
+        position: 'top-center',
+        duration: 4000,
+        icon: '⚠️'
+      })
+      return false
+    }
+
+    const config = selectedPlace.configuration
+
+    // Step 1: Check if booking time is within place operating hours
+    const placeStartTime = config.start_time.substring(0, 5) // HH:MM:SS -> HH:MM
+    const placeEndTime = config.end_time.substring(0, 5)
+
+    if (startTime < placeStartTime || endTime > placeEndTime) {
+      toast.error(`Booking time must be within operating hours: ${placeStartTime} - ${placeEndTime}`, {
+        position: 'top-center',
+        duration: 4000,
+        icon: '⏰'
+      })
+      return false
+    }
+
+    // Step 2: Check if start time is before end time
+    if (startTime >= endTime) {
+      toast.error("End time must be after start time", {
+        position: 'top-center',
+        duration: 3000,
+        icon: '⚠️'
+      })
+      return false
+    }
+
+    // Step 3: Check for overlapping bookings on the same date and place
+    const conflictingBookings = bookings.filter((booking) => {
+      // Skip if this is the booking being edited
+      if (excludeId && booking.id === excludeId) {
+        return false
+      }
+
+      // Only check bookings on the same date and same place
+      if (booking.date !== date || booking.place !== selectedPlace.name) {
+        return false
+      }
+
+      // Skip cancelled bookings
+      if (booking.status === "cancelled") {
+        return false
+      }
+
+      const bookingStart = new Date(`${date}T${booking.startTime}:00`)
+      const bookingEnd = new Date(`${date}T${booking.endTime}:00`)
+      const newStart = new Date(`${date}T${startTime}:00`)
+      const newEnd = new Date(`${date}T${endTime}:00`)
+
+      // Check for overlap
+      const hasOverlap = (
+        (newStart >= bookingStart && newStart < bookingEnd) ||
+        (newEnd > bookingStart && newEnd <= bookingEnd) ||
+        (newStart <= bookingStart && newEnd >= bookingEnd)
+      )
+
+      return hasOverlap
+    })
+
+    if (conflictingBookings.length > 0) {
+      const conflict = conflictingBookings[0]
+      toast.error(`Time slot conflicts with "${conflict.title}" (${conflict.startTime} - ${conflict.endTime})`, {
+        position: 'top-center',
+        duration: 5000,
+        icon: '⚠️'
+      })
+      return false
+    }
+
+    return true
+  }
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+
+    // Check availability
+    if (!checkAvailability(formData.date, formData.place, formData.startTime, formData.endTime, editingBooking?.id)) {
+      toast.error("This time slot is not available. Please choose a different time or place.", {
+        position: 'top-center',
+        duration: 4000,
+        icon: '⚠️'
+      })
+      return
+    }
+
+    try {
+      // Generate UUID for booking
+      const generateUUID = () => {
+        return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
+          const r = Math.random() * 16 | 0
+          const v = c === 'x' ? r : (r & 0x3 | 0x8)
+          return v.toString(16)
+        })
+      }
+
+      // Get selected place details
+      const selectedPlace = availablePlaces.find(p => p.id === formData.place)
+
+      if (editingBooking) {
+        // UPDATE existing booking
+        const updateData = {
+          title: formData.title,
+          description: formData.description,
+          booking_date: formData.date,
+          start_time: formData.startTime + ':00',
+          end_time: formData.endTime + ':00',
+          place_id: formData.place,
+          place_name: selectedPlace?.name || '',
+          responsible_person_id: formData.responsiblePerson?.id,
+          responsible_person_name: formData.responsiblePerson?.name,
+          responsible_person_email: formData.responsiblePerson?.email,
+          refreshments_required: formData.refreshments.required ? 1 : 0,
+          refreshments_details: JSON.stringify(formData.refreshments),
+          updated_at: (() => {
+            const now = new Date()
+            const sriLankaTime = new Intl.DateTimeFormat('en-CA', {
+              timeZone: 'Asia/Colombo',
+              year: 'numeric',
+              month: '2-digit',
+              day: '2-digit',
+              hour: '2-digit',
+              minute: '2-digit',
+              second: '2-digit',
+              hour12: false
+            }).formatToParts(now)
+
+            const year = parseInt(sriLankaTime.find(p => p.type === 'year')?.value || '0')
+            const month = parseInt(sriLankaTime.find(p => p.type === 'month')?.value || '0')
+            const day = parseInt(sriLankaTime.find(p => p.type === 'day')?.value || '0')
+            const hour = parseInt(sriLankaTime.find(p => p.type === 'hour')?.value || '0')
+            const minute = parseInt(sriLankaTime.find(p => p.type === 'minute')?.value || '0')
+            const second = parseInt(sriLankaTime.find(p => p.type === 'second')?.value || '0')
+
+            // Create a Date object representing Sri Lanka local time
+            const sriLankaDate = new Date(year, month - 1, day, hour, minute, second)
+
+            // Calculate UTC time that represents this Sri Lanka local time
+            // Sri Lanka is UTC+5:30, so subtract 5 hours 30 minutes to get UTC
+            const offsetMs = (5 * 60 + 30) * 60 * 1000
+            const utcDate = new Date(sriLankaDate.getTime() - offsetMs)
+
+            // Format as MySQL DATETIME: YYYY-MM-DD HH:MM:SS (UTC)
+            const utcYear = utcDate.getUTCFullYear()
+            const utcMonth = String(utcDate.getUTCMonth() + 1).padStart(2, '0')
+            const utcDay = String(utcDate.getUTCDate()).padStart(2, '0')
+            const utcHour = String(utcDate.getUTCHours()).padStart(2, '0')
+            const utcMinute = String(utcDate.getUTCMinutes()).padStart(2, '0')
+            const utcSecond = String(utcDate.getUTCSeconds()).padStart(2, '0')
+
+            return `${utcYear}-${utcMonth}-${utcDay} ${utcHour}:${utcMinute}:${utcSecond}`
+          })()
+        }
+
+        await placeManagementAPI.updateRecord('bookings',
+          { id: editingBooking.id },
+          updateData
+        )
+
+        toast.success('Booking updated successfully!', {
+          position: 'top-center',
+          duration: 3000,
+          icon: '✅'
+        })
+
+        // Refresh bookings list from database
+        await fetchBookings()
+      } else {
+        // INSERT new booking
+        // Get current time in Sri Lanka timezone (UTC+5:30)
+        // Returns UTC time that represents the current Sri Lanka local time
+        const getSriLankaTimestamp = (): string => {
+          const now = new Date()
+          const sriLankaTime = new Intl.DateTimeFormat('en-CA', {
+            timeZone: 'Asia/Colombo',
+            year: 'numeric',
+            month: '2-digit',
+            day: '2-digit',
+            hour: '2-digit',
+            minute: '2-digit',
+            second: '2-digit',
+            hour12: false
+          }).formatToParts(now)
+
+          const year = parseInt(sriLankaTime.find(p => p.type === 'year')?.value || '0')
+          const month = parseInt(sriLankaTime.find(p => p.type === 'month')?.value || '0')
+          const day = parseInt(sriLankaTime.find(p => p.type === 'day')?.value || '0')
+          const hour = parseInt(sriLankaTime.find(p => p.type === 'hour')?.value || '0')
+          const minute = parseInt(sriLankaTime.find(p => p.type === 'minute')?.value || '0')
+          const second = parseInt(sriLankaTime.find(p => p.type === 'second')?.value || '0')
+
+          // Create a Date object representing Sri Lanka local time
+          const sriLankaDate = new Date(year, month - 1, day, hour, minute, second)
+
+          // Calculate UTC time that represents this Sri Lanka local time
+          // Sri Lanka is UTC+5:30, so subtract 5 hours 30 minutes to get UTC
+          const offsetMs = (5 * 60 + 30) * 60 * 1000 // 5:30 in milliseconds
+          const utcDate = new Date(sriLankaDate.getTime() - offsetMs)
+
+          // Format as MySQL DATETIME: YYYY-MM-DD HH:MM:SS (UTC)
+          const utcYear = utcDate.getUTCFullYear()
+          const utcMonth = String(utcDate.getUTCMonth() + 1).padStart(2, '0')
+          const utcDay = String(utcDate.getUTCDate()).padStart(2, '0')
+          const utcHour = String(utcDate.getUTCHours()).padStart(2, '0')
+          const utcMinute = String(utcDate.getUTCMinutes()).padStart(2, '0')
+          const utcSecond = String(utcDate.getUTCSeconds()).padStart(2, '0')
+
+          return `${utcYear}-${utcMonth}-${utcDay} ${utcHour}:${utcMinute}:${utcSecond}`
+        }
+
+        const bookingId = generateUUID()
+        const currentTimestamp = getSriLankaTimestamp()
+
+        const newBookingData = {
+          id: bookingId,
+          title: formData.title,
+          description: formData.description || null,
+          booking_date: formData.date,
+          start_time: formData.startTime + ':00',
+          end_time: formData.endTime + ':00',
+          place_id: formData.place,
+          place_name: selectedPlace?.name || '',
+          status: 'pending',
+          responsible_person_id: formData.responsiblePerson?.id || null,
+          responsible_person_name: formData.responsiblePerson?.name || null,
+          responsible_person_email: formData.responsiblePerson?.email || null,
+          total_participants: formData.selectedEmployees.length + formData.externalParticipants.length,
+          internal_participants: formData.selectedEmployees.length,
+          external_participants: formData.externalParticipants.length,
+          refreshments_required: formData.refreshments.required ? 1 : 0,
+          refreshments_details: JSON.stringify(formData.refreshments),
+          is_deleted: 0,
+          created_by: user?.id || 'Unknown', // Set created_by to current user
+          created_at: currentTimestamp,
+          updated_at: currentTimestamp
+        }
+
+
+        await placeManagementAPI.insertRecord('bookings', newBookingData)
+
+        // Insert internal participants
+        for (const employee of formData.selectedEmployees) {
+          await placeManagementAPI.insertRecord('booking_participants', {
+            id: generateUUID(),
+            booking_id: bookingId,
+            employee_id: employee.id,
+            employee_name: employee.name,
+            employee_email: employee.email,
+            employee_department: employee.department,
+            employee_role: employee.role,
+            employee_phone: employee.phone,
+            participation_status: 'invited'
+          })
+        }
+
+        // Insert external participants
+        for (const participant of formData.externalParticipants) {
+          await placeManagementAPI.insertRecord('external_participants', {
+            id: generateUUID(),
+            booking_id: bookingId,
+            full_name: participant.fullName,
+            email: participant.email,
+            phone: participant.phone,
+            reference_type: participant.referenceType,
+            reference_value: participant.referenceValue,
+            participation_status: 'invited'
+          })
+        }
+
+        // Insert refreshments if required
+        if (formData.refreshments.required) {
+          await placeManagementAPI.insertRecord('booking_refreshments', {
+            id: generateUUID(),
+            booking_id: bookingId,
+            refreshment_type: formData.refreshments.type || 'beverages',
+            items: JSON.stringify(formData.refreshments.items),
+            serving_time: formData.refreshments.servingTime ? formData.refreshments.servingTime + ':00' : null,
+            estimated_count: formData.refreshments.estimatedCount,
+            special_requests: formData.refreshments.specialRequests || null,
+            status: 'pending'
+          })
+        }
+
+        toast.success('Booking created successfully!', {
+          position: 'top-center',
+          duration: 3000,
+          icon: '✅'
+        })
+
+        // Refresh bookings list from database with current filters
+        await fetchBookings(filterDateFrom, filterDateTo)
+      }
+
+      setIsDialogOpen(false)
+      resetForm()
+    } catch (error: any) {
+      // Silent fail - error handled by toast
+      toast.error(error.message || 'Failed to save booking', {
+        position: 'top-center',
+        duration: 4000,
+        icon: '❌'
+      })
+    }
+  }
+
+  const handleEdit = (booking: Booking) => {
+    // Staff can only edit bookings where they are the responsible person (checked by email)
+    const responsiblePersonEmail = booking.responsiblePerson?.email || ''
+    const currentUserEmail = user?.email || ''
+    const isResponsiblePerson = responsiblePersonEmail.toLowerCase().trim() === currentUserEmail.toLowerCase().trim()
+
+    if (!booking.responsiblePerson || !isResponsiblePerson) {
+      toast.error('You can only edit bookings where you are the responsible person', {
+        position: 'top-center',
+        duration: 3000,
+        icon: '🚫'
+      })
+      return
+    }
+
+    // Check if booking is completed or cancelled
+    if (booking.status === "completed") {
+      toast.error("Cannot edit completed bookings", {
+        position: 'top-center',
+        duration: 3000,
+        icon: '🚫'
+      })
+      return
+    }
+
+    if (booking.status === "cancelled") {
+      toast.error("Cannot edit cancelled bookings", {
+        position: 'top-center',
+        duration: 3000,
+        icon: '🚫'
+      })
+      return
+    }
+
+    setConfirmTitle("Edit Booking")
+    setConfirmMessage(`Do you want to edit "${booking.title}"?`)
+    setConfirmAction(() => () => {
+      // Redirect to update page with booking ID
+      window.location.href = `/staff/bookings/update?id=${booking.id}`
+      setIsConfirmDialogOpen(false)
+    })
+    setIsConfirmDialogOpen(true)
+  }
+
+  const handleCancel = async (id: string) => {
+    // Staff can only cancel bookings where they are the responsible person (checked by email)
+    const booking = bookings.find(b => b.id === id)
+    if (!booking) return
+
+    // Check by email instead of ID
+    const responsiblePersonEmail = booking.responsiblePerson?.email || ''
+    const currentUserEmail = user?.email || ''
+    const isResponsiblePerson = responsiblePersonEmail.toLowerCase().trim() === currentUserEmail.toLowerCase().trim()
+
+    if (!booking.responsiblePerson || !isResponsiblePerson) {
+      toast.error('You can only cancel bookings where you are the responsible person', {
+        position: 'top-center',
+        duration: 3000,
+        icon: '🚫'
+      })
+      return
+    }
+
+    // Open cancellation reason dialog
+    setBookingToCancel(id)
+    setCancellationReason("")
+    setIsCancellationDialog(true)
+  }
+
+  const handleShowCancellationReason = async (booking: Booking) => {
+    // If cancellation data is already loaded, use it
+    if (booking.cancellation) {
+      const cancellationWithReason = {
+        ...booking.cancellation,
+        cancellation_reason: booking.cancellation.cancellation_reason ||
+          booking.cancellation['cancellation_reason'] ||
+          ''
+      }
+
+      setSelectedCancellation(cancellationWithReason)
+      setIsCancellationReasonDialogOpen(true)
+      return
+    }
+
+    // If cancellation data is not loaded, try to fetch it
+    try {
+      const cancellationResponse = await placeManagementAPI.getTableData('booking_cancellations', {
+        filters: [
+          { field: 'booking_id', operator: '=', value: booking.id }
+        ],
+        limit: 1,
+        sortBy: 'cancelled_at',
+        sortOrder: 'desc'
+      })
+
+      // Handle different response formats
+      let cancellations: any[] = []
+      if (Array.isArray(cancellationResponse)) {
+        cancellations = cancellationResponse
+      } else if (cancellationResponse && cancellationResponse.data && Array.isArray(cancellationResponse.data)) {
+        cancellations = cancellationResponse.data
+      } else if (cancellationResponse && cancellationResponse.success && Array.isArray(cancellationResponse.data)) {
+        cancellations = cancellationResponse.data
+      }
+
+      if (cancellations.length > 0) {
+        const cancellation = cancellations[0]
+        const reason = cancellation.cancellation_reason ||
+          cancellation['cancellation_reason'] ||
+          cancellation.cancellationReason ||
+          cancellation.reason ||
+          ''
+
+        const cancellationData: BookingCancellation = {
+          id: cancellation.id,
+          booking_id: cancellation.booking_id || cancellation.bookingId || booking.id,
+          cancelled_by: cancellation.cancelled_by || cancellation.cancelledBy,
+          cancellation_reason: String(reason).trim(),
+          cancellation_type: cancellation.cancellation_type || cancellation.cancellationType || 'user_cancelled',
+          cancelled_at: cancellation.cancelled_at || cancellation.cancelledAt
+        }
+
+        setSelectedCancellation(cancellationData)
+        setIsCancellationReasonDialogOpen(true)
+      } else {
+        toast.error('Cancellation reason not found in database', {
+          position: 'top-center',
+          duration: 3000,
+          icon: '⚠️'
+        })
+      }
+    } catch (error) {
+      toast.error('Failed to load cancellation data', {
+        position: 'top-center',
+        duration: 3000,
+        icon: '⚠️'
+      })
+    }
+  }
+
+  const handleConfirmCancellation = async () => {
+    if (!bookingToCancel) return
+
+    if (!cancellationReason.trim()) {
+      toast.error('Please provide a reason for cancellation', {
+        position: 'top-center',
+        duration: 3000,
+        icon: '⚠️'
+      })
+      return
+    }
+
+    const booking = bookings.find(b => b.id === bookingToCancel)
+    if (!booking) return
+
+    try {
+      // Get current user ID from localStorage
+      const userData = localStorage.getItem('userData')
+      const currentUser = userData ? JSON.parse(userData) : null
+      const cancelledBy = currentUser?.id || 'system'
+
+      // Get current time in Sri Lanka timezone (UTC+5:30)
+      // Returns UTC time that represents the current Sri Lanka local time
+      const getSriLankaTimestamp = (): string => {
+        const now = new Date()
+        const sriLankaTime = new Intl.DateTimeFormat('en-CA', {
+          timeZone: 'Asia/Colombo',
+          year: 'numeric',
+          month: '2-digit',
+          day: '2-digit',
+          hour: '2-digit',
+          minute: '2-digit',
+          second: '2-digit',
+          hour12: false
+        }).formatToParts(now)
+
+        const year = parseInt(sriLankaTime.find(p => p.type === 'year')?.value || '0')
+        const month = parseInt(sriLankaTime.find(p => p.type === 'month')?.value || '0')
+        const day = parseInt(sriLankaTime.find(p => p.type === 'day')?.value || '0')
+        const hour = parseInt(sriLankaTime.find(p => p.type === 'hour')?.value || '0')
+        const minute = parseInt(sriLankaTime.find(p => p.type === 'minute')?.value || '0')
+        const second = parseInt(sriLankaTime.find(p => p.type === 'second')?.value || '0')
+
+        // Create a Date object representing Sri Lanka local time
+        const sriLankaDate = new Date(year, month - 1, day, hour, minute, second)
+
+        // Calculate UTC time that represents this Sri Lanka local time
+        // Sri Lanka is UTC+5:30, so subtract 5 hours 30 minutes to get UTC
+        const offsetMs = (5 * 60 + 30) * 60 * 1000
+        const utcDate = new Date(sriLankaDate.getTime() - offsetMs)
+
+        // Format as MySQL DATETIME: YYYY-MM-DD HH:MM:SS (UTC)
+        const utcYear = utcDate.getUTCFullYear()
+        const utcMonth = String(utcDate.getUTCMonth() + 1).padStart(2, '0')
+        const utcDay = String(utcDate.getUTCDate()).padStart(2, '0')
+        const utcHour = String(utcDate.getUTCHours()).padStart(2, '0')
+        const utcMinute = String(utcDate.getUTCMinutes()).padStart(2, '0')
+        const utcSecond = String(utcDate.getUTCSeconds()).padStart(2, '0')
+
+        return `${utcYear}-${utcMonth}-${utcDay} ${utcHour}:${utcMinute}:${utcSecond}`
+      }
+
+      const currentTimestamp = getSriLankaTimestamp()
+
+      // Update booking status
+      await placeManagementAPI.updateRecord('bookings',
+        { id: bookingToCancel },
+        {
+          status: 'cancelled',
+          cancelled_at: currentTimestamp,
+          updated_at: currentTimestamp
+        }
+      )
+
+      // Save cancellation reason to booking_cancellations table
+      const cancellationData = {
+        id: generateUUID(),
+        booking_id: bookingToCancel,
+        cancelled_by: cancelledBy,
+        cancellation_reason: cancellationReason.trim(),
+        cancellation_type: 'admin_cancelled',
+        cancelled_at: currentTimestamp
+      }
+
+      await placeManagementAPI.insertRecord('booking_cancellations', cancellationData)
+
+      // Refresh bookings to get the cancellation reason with current filters
+      await fetchBookings(filterDateFrom, filterDateTo)
+
+      toast.success('Booking cancelled successfully', {
+        position: 'top-center',
+        duration: 3000,
+        icon: '✅'
+      })
+
+      setIsCancellationDialog(false)
+      setCancellationReason("")
+      setBookingToCancel(null)
+    } catch (error: any) {
+      toast.error('Failed to cancel booking', {
+        position: 'top-center',
+        duration: 4000,
+        icon: '❌'
+      })
+    }
+  }
+
+  const addExternalParticipant = () => {
+    if (!newExternalParticipant.fullName || !newExternalParticipant.phone || !newExternalParticipant.referenceValue) {
+      alert("Please fill in all required fields for the external participant.")
+      return
+    }
+
+    const participant: ExternalParticipant = {
+      id: Math.random().toString(36).substr(2, 9),
+      ...newExternalParticipant,
+    }
+
+    setFormData({
+      ...formData,
+      externalParticipants: [...formData.externalParticipants, participant],
+    })
+
+    setNewExternalParticipant({
+      fullName: "",
+      email: "",
+      phone: "",
+      referenceType: "NIC",
+      referenceValue: "",
+    })
+  }
+
+  const removeExternalParticipant = (id: string) => {
+    setFormData({
+      ...formData,
+      externalParticipants: formData.externalParticipants.filter((p) => p.id !== id),
+    })
+  }
+
+  const addRefreshmentItem = (item: string) => {
+    if (item && !formData.refreshments.items.includes(item)) {
+      setFormData({
+        ...formData,
+        refreshments: {
+          ...formData.refreshments,
+          items: [...formData.refreshments.items, item],
+        },
+      })
+    }
+  }
+
+  const removeRefreshmentItem = (item: string) => {
+    setFormData({
+      ...formData,
+      refreshments: {
+        ...formData.refreshments,
+        items: formData.refreshments.items.filter((i) => i !== item),
+      },
+    })
+  }
+
+  const getStatusBadgeProps = (status: string) => {
+    const statusLower = (status || '').toLowerCase()
+    switch (statusLower) {
+      case "pending":
+        return { className: "text-[11px] bg-gray-500 dark:bg-gray-600 text-white hover:bg-gray-600 dark:hover:bg-gray-700" } // Gray
+      case "upcoming":
+        return { className: "text-[11px] bg-orange-500 dark:bg-orange-600 text-white hover:bg-orange-600 dark:hover:bg-orange-700" } // Orange
+      case "ongoing":
+      case "in-progress":
+      case "in_progress":
+        return { className: "text-[11px] bg-green-500 dark:bg-green-600 text-white hover:bg-green-600 dark:hover:bg-green-700" } // Green
+      case "completed":
+        return { className: "text-[11px] bg-blue-500 dark:bg-blue-600 text-white hover:bg-blue-600 dark:hover:bg-blue-700" } // Blue
+      case "cancelled":
+        return { className: "text-[11px] bg-red-500 dark:bg-red-600 text-white hover:bg-red-600 dark:hover:bg-red-700" } // Red
+      default:
+        return { className: "text-[11px] bg-gray-400 dark:bg-gray-500 text-white hover:bg-gray-500 dark:hover:bg-gray-600" } // Default Gray
+    }
+  }
+
+  // Format time to HH:MM (removes seconds and handles timestamps)
+  const formatTime = (time: string) => {
+    if (!time) return ''
+
+    // If it's already in HH:MM format, return as is
+    if (time.length === 5 && time.includes(':')) {
+      return time
+    }
+
+    // If it's in HH:MM:SS format, remove seconds
+    if (time.includes(':')) {
+      return time.substring(0, 5)
+    }
+
+    // If it's a full timestamp, extract time
+    try {
+      const date = new Date(time)
+      if (!isNaN(date.getTime())) {
+        const hours = date.getHours().toString().padStart(2, '0')
+        const minutes = date.getMinutes().toString().padStart(2, '0')
+        return `${hours}:${minutes}`
+      }
+    } catch (e) {
+      // Silent fail - return original time string
+    }
+
+    return time
+  }
+
+  // Format date to readable format (YYYY-MM-DD to readable)
+  const formatDate = (date: string) => {
+    if (!date) return ''
+
+    try {
+      const d = new Date(date)
+      if (!isNaN(d.getTime())) {
+        // Format as: Jan 15, 2024 or use toLocaleDateString
+        return d.toLocaleDateString('en-US', {
+          year: 'numeric',
+          month: 'short',
+          day: 'numeric'
+        })
+      }
+    } catch (e) {
+      // Silent fail - return original date string
+    }
+
+    return date
+  }
+
+  // Apply filters
+  useEffect(() => {
+    let filtered = [...bookings]
+
+    // Search filter
+    if (searchTerm) {
+      filtered = filtered.filter(b =>
+        b.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        b.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        b.place.toLowerCase().includes(searchTerm.toLowerCase())
+      )
+    }
+
+    // Status filter
+    if (statusFilter !== "all") {
+      filtered = filtered.filter(b => b.status === statusFilter)
+    }
+
+    // Place filter
+    if (placeFilter !== "all") {
+      filtered = filtered.filter(b => b.placeId === placeFilter || b.place === placeFilter)
+    }
+
+    // Date range filter
+    if (filterDateFrom) {
+      filtered = filtered.filter(b => b.date >= filterDateFrom)
+    }
+    if (filterDateTo) {
+      filtered = filtered.filter(b => b.date <= filterDateTo)
+    }
+
+    setFilteredBookings(filtered)
+  }, [bookings, searchTerm, statusFilter, placeFilter, filterDateFrom, filterDateTo])
+
+  // Pagination Logic - Removed (Load All)
+  const paginatedBookings = filteredBookings
+
+  // Get today's bookings sorted by start time
+  const todaysBookings = bookings
+    .filter((booking) => {
+      const today = new Date().toISOString().split("T")[0]
+      return booking.date === today && booking.status !== "cancelled"
+    })
+    .sort((a, b) => {
+      // Sort by start time
+      const timeA = a.startTime.split(':').map(Number)
+      const timeB = b.startTime.split(':').map(Number)
+      return (timeA[0] * 60 + timeA[1]) - (timeB[0] * 60 + timeB[1])
+    })
+
+  // Check if a booking is currently ongoing
+  const isBookingOngoing = (booking: Booking) => {
+    const now = new Date()
+    const today = now.toISOString().split('T')[0]
+    if (booking.date !== today) return false
+
+    const currentTime = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`
+    return currentTime >= booking.startTime && currentTime < booking.endTime
+  }
+
+  // Email notification helper functions
+  const handleSendEmailClick = async (booking: Booking) => {
+    setSelectedBookingForEmail(booking)
+    setSelectedEmailParticipants([])
+    setEmailType('booking_details')
+    setIsEmailDialogOpen(true)
+
+    // Load participants for this booking
+    // Commented out to prevent overwriting correct local data with incorrect API data
+    // await loadBookingParticipants(booking.id)
+  }
+
+  const loadBookingParticipants = async (bookingId: string) => {
+    try {
+      setIsLoadingParticipants(true)
+
+      // Use the NEW Booking Email API to get participants
+      // Get token from localStorage (check both possible keys) - same as OTP email sending
+      const token = localStorage.getItem('authToken') ||
+        localStorage.getItem('jwt_token') ||
+        localStorage.getItem('token') ||
+        ''
+
+      if (!token) {
+        toast.error('Authentication required. Please log in again.', {
+          position: 'top-center',
+          duration: 3000
+        })
+        setBookingParticipants([])
+        return
+      }
+
+      // Get required headers from environment (same as OTP email sending)
+      const appId = process.env.NEXT_PUBLIC_APP_ID || 'default_app_id'
+      const serviceKey = process.env.NEXT_PUBLIC_SERVICE_KEY || 'default_service_key'
+
+      // Use same headers as OTP email sending
+      /*
+      const response = await fetch(`/api/booking-email/${bookingId}/participants`, {
+        headers: {
+          'Content-Type': 'application/json',
+          'X-App-Id': appId,
+          'X-Service-Key': serviceKey,
+          'Authorization': `Bearer ${token}`
+        }
+      })
+      */
+
+      // Simulate successful response with empty array since we're using local data
+      const response = {
+        status: 200,
+        ok: true,
+        json: async () => ({ success: true, data: { participants: [] } })
+      }
+
+      // Check if response is unauthorized
+      if (response.status === 401) {
+        toast.error('Authentication failed. Please log in again.', {
+          position: 'top-center',
+          duration: 3000
+        })
+        setBookingParticipants([])
+        return
+      }
+
+      // Check if response is not OK
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}))
+        toast.error(errorData.message || 'Failed to load participants from API', {
+          position: 'top-center',
+          duration: 3000
+        })
+        // Keep participants from booking data if API fails
+        return
+      }
+
+      const result = await response.json()
+
+      if (result.success) {
+        const participants: BookingParticipant[] = result.data.participants.map((p: any) => ({
+          id: p.id,
+          full_name: p.full_name,
+          email: p.email,
+          phone: p.phone,
+          company_name: p.company_name,
+          member_type: p.member_type,
+          has_email: p.email ? 1 : 0
+        }))
+
+        setBookingParticipants(participants)
+      } else {
+        setBookingParticipants([])
+      }
+
+    } catch (error: any) {
+      setBookingParticipants([])
+      toast.error('Failed to load participants')
+    } finally {
+      setIsLoadingParticipants(false)
+    }
+  }
+
+  // Create participants from booking data (original working version)
+  const createParticipantsFromBooking = (booking: Booking): BookingParticipant[] => {
+    const participants: BookingParticipant[] = []
+
+    // Add responsible person
+    if (booking.responsiblePerson) {
+
+      // Handle both string and object formats for responsiblePerson
+      let responsiblePersonName = ''
+      let responsiblePersonEmail = ''
+
+      if (typeof booking.responsiblePerson === 'string') {
+        responsiblePersonName = booking.responsiblePerson
+        responsiblePersonEmail = booking.responsiblePersonEmail || ''
+      } else if (typeof booking.responsiblePerson === 'object' && booking.responsiblePerson !== null) {
+        // Extract name from object
+        responsiblePersonName = booking.responsiblePerson.name ||
+          booking.responsiblePerson.full_name ||
+          booking.responsiblePerson.fullName ||
+          'Responsible Person'
+        // Extract email from object or use separate field
+        responsiblePersonEmail = booking.responsiblePerson.email ||
+          booking.responsiblePersonEmail ||
+          ''
+      }
+
+      participants.push({
+        id: `responsible-${booking.id}`,
+        full_name: responsiblePersonName,
+        email: responsiblePersonEmail,
+        phone: '',
+        company_name: '',
+        member_type: 'employee',
+        has_email: responsiblePersonEmail ? 1 : 0
+      })
+    }
+
+    // Add internal participants (employees)
+    if (booking.selectedEmployees && Array.isArray(booking.selectedEmployees)) {
+      booking.selectedEmployees.forEach((employee, index) => {
+        participants.push({
+          id: `internal-${booking.id}-${index}`,
+          full_name: String(employee.name || 'Unknown Employee'),
+          email: String(employee.email || ''),
+          phone: String(employee.phone || ''),
+          company_name: '',
+          member_type: 'employee',
+          has_email: employee.email ? 1 : 0
+        })
+      })
+    }
+
+    // Add external participants
+    if (booking.externalParticipants && Array.isArray(booking.externalParticipants)) {
+      booking.externalParticipants.forEach((participant, index) => {
+        participants.push({
+          id: `external-${booking.id}-${index}`,
+          full_name: String(participant.fullName || 'Unknown Participant'),
+          email: String(participant.email || ''),
+          phone: String(participant.phone || ''),
+          company_name: String(participant.companyName || ''),
+          member_type: 'visitor',
+          has_email: participant.email ? 1 : 0
+        })
+      })
+    }
+
+    return participants
+  }
+
+  const handleParticipantEmailSelection = (participantId: string, checked: boolean) => {
+    if (checked) {
+      setSelectedEmailParticipants(prev => [...prev, participantId])
+    } else {
+      setSelectedEmailParticipants(prev => prev.filter(id => id !== participantId))
+    }
+  }
+
+  const handleSelectAllParticipants = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.checked) {
+      const allParticipantIds = bookingParticipants
+        .filter(p => p.has_email === 1)
+        .map(p => p.id)
+      setSelectedEmailParticipants(allParticipantIds)
+    } else {
+      setSelectedEmailParticipants([])
+    }
+  }
+
+  const sendReminderEmails = async (reminderType: '24_hours' | '1_hour') => {
+    if (!selectedBookingForEmail) {
+      toast.error('Please select a booking')
+      return
+    }
+
+    try {
+      setIsSendingEmails(true)
+
+      // Use the NEW Booking Email API for reminders
+      // Get required headers from environment (same as OTP email sending)
+      const appId = process.env.NEXT_PUBLIC_APP_ID || 're_J561ebQe_8pHNiwDmVVxV46rs3V8FMRUQ'
+      const serviceKey = process.env.NEXT_PUBLIC_SERVICE_KEY || 're_J561ebQe_8pHNiwDmVVxV46rs3V8FMRUQ12345'
+
+      const response = await fetch(`/api/booking-email/${selectedBookingForEmail.id}/send-reminder`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('token') || ''}`,
+          'X-App-Id': appId,
+          'X-Service-Key': serviceKey
+        },
+        body: JSON.stringify({
+          reminderType: reminderType,
+          customMessage: '',
+          includeCalendar: true,
+          calendarFormat: 'ics'
+        })
+      })
+
+      const result = await response.json()
+
+      if (result.success) {
+        const { emailsSent, emailsFailed } = result.data || {}
+        if (emailsFailed > 0) {
+          toast.success(`Reminder emails sent to ${emailsSent} participants, ${emailsFailed} failed`)
+        } else {
+          toast.success(`Reminder emails sent to ${emailsSent} participants`)
+        }
+
+        // Close dialog
+        setIsEmailDialogOpen(false)
+        setSelectedBookingForEmail(null)
+        setSelectedEmailParticipants([])
+        setBookingParticipants([])
+      } else {
+        toast.error(result.message || 'Failed to send reminder emails')
+      }
+
+    } catch (error: any) {
+      toast.error('Failed to send reminder emails')
+    } finally {
+      setIsSendingEmails(false)
+    }
+  }
+
+  // Helper function to send booking email using new simplified API
+  const sendBookingEmailFromFrontend = async (bookingData: {
+    meetingName: string
+    date: string
+    startTime: string
+    endTime: string
+    place?: string
+    description?: string
+    participantEmails: string[]
+    emailType?: string
+    bookingRefId?: string
+  }) => {
+    try {
+      // Get token from localStorage (check all possible keys)
+      const token = localStorage.getItem('authToken') ||
+        localStorage.getItem('jwt_token') ||
+        localStorage.getItem('token') ||
+        ''
+
+      if (!token) {
+        toast.error('Authentication required. Please log in again.', {
+          position: 'top-center',
+          duration: 3000
+        })
+        return null
+      }
+
+      // Prepare full API request details
+      // Prepare full API request details
+      const apiUrl = '/api/booking-email/send-from-frontend'
+      const requestMethod = 'POST'
+      const appId = process.env.NEXT_PUBLIC_APP_ID || 're_J561ebQe_8pHNiwDmVVxV46rs3V8FMRUQ'
+      const serviceKey = process.env.NEXT_PUBLIC_SERVICE_KEY || 're_J561ebQe_8pHNiwDmVVxV46rs3V8FMRUQ12345'
+
+      const requestHeaders = {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`,
+        'X-App-Id': appId,
+        'X-Service-Key': serviceKey
+      }
+
+      // Add calendar options
+      const enrichedBookingData = {
+        ...bookingData,
+        includeCalendar: true,
+        calendarFormat: 'ics'
+      }
+
+      const requestBody = JSON.stringify(enrichedBookingData)
+
+      const requestStartTime = Date.now()
+
+      const response = await fetch(apiUrl, {
+        method: requestMethod,
+        headers: requestHeaders,
+        body: requestBody
+      })
+
+      const requestDuration = Date.now() - requestStartTime
+
+      // Handle non-OK responses
+      if (!response.ok) {
+        let errorData
+        try {
+          errorData = await response.json()
+        } catch (parseError) {
+          const errorText = await response.text()
+          toast.error(`Error: ${response.status} ${response.statusText}`, {
+            position: 'top-center',
+            duration: 3000
+          })
+          return null
+        }
+
+        if (response.status === 401) {
+          toast.error(errorData.message || 'Authentication failed. Please log in again.', {
+            position: 'top-center',
+            duration: 3000
+          })
+        } else {
+          toast.error(errorData.message || `Failed to send emails (Status: ${response.status})`, {
+            position: 'top-center',
+            duration: 3000
+          })
+        }
+        return null
+      }
+
+      const result = await response.json()
+
+      if (result.success) {
+        return result
+      } else {
+        toast.error(result.message || 'Failed to send emails', {
+          position: 'top-center',
+          duration: 3000
+        })
+        return null
+      }
+    } catch (error: any) {
+      toast.error('Failed to send emails. Please try again.', {
+        position: 'top-center',
+        duration: 3000
+      })
+      return null
+    }
+  }
+
+  const sendEmailNotifications = async () => {
+    if (!selectedBookingForEmail || selectedEmailParticipants.length === 0) {
+      toast.error('Please select participants to send emails to')
+      return
+    }
+
+    try {
+      setIsSendingEmails(true)
+
+      // Get token from localStorage (check all possible keys)
+      const token = localStorage.getItem('authToken') ||
+        localStorage.getItem('jwt_token') ||
+        localStorage.getItem('token') ||
+        ''
+
+      if (!token) {
+        toast.error('Authentication required. Please log in again.', {
+          position: 'top-center',
+          duration: 3000
+        })
+        return
+      }
+
+      if (!selectedEmailParticipants || selectedEmailParticipants.length === 0) {
+        toast.error('Please select at least one participant to send emails to', {
+          position: 'top-center',
+          duration: 3000
+        })
+        return
+      }
+
+      // Get selected participants with valid emails (NEW APPROACH - extract emails directly)
+      const selectedParticipantsWithEmails = bookingParticipants.filter(p =>
+        selectedEmailParticipants.includes(p.id) &&
+        p.email &&
+        p.email.trim() !== '' &&
+        p.has_email === 1
+      )
+
+      if (selectedParticipantsWithEmails.length === 0) {
+        toast.error('No participants with valid emails found. Please select participants with email addresses.', {
+          position: 'top-center',
+          duration: 3000
+        })
+        return
+      }
+
+      // Extract participant emails
+      const participantEmails = selectedParticipantsWithEmails
+        .map(p => p.email)
+        .filter((email): email is string => !!email && email.trim() !== '')
+
+      // Format time - ensure it has seconds (HH:MM:SS)
+      const formatTime = (time: string): string => {
+        if (!time) return ''
+        // If time is in HH:MM format, add :00 for seconds
+        if (time.split(':').length === 2) {
+          return time + ':00'
+        }
+        // If already in HH:MM:SS format, return as is
+        return time
+      }
+
+      // Format date - ensure YYYY-MM-DD format
+      const formatDate = (date: string): string => {
+        if (!date) return ''
+        // If date is already in YYYY-MM-DD format, return as is
+        if (date.match(/^\d{4}-\d{2}-\d{2}$/)) {
+          return date
+        }
+        // Try to parse and format if needed
+        try {
+          const dateObj = new Date(date)
+          const year = dateObj.getFullYear()
+          const month = String(dateObj.getMonth() + 1).padStart(2, '0')
+          const day = String(dateObj.getDate()).padStart(2, '0')
+          return `${year}-${month}-${day}`
+        } catch (e) {
+          return date
+        }
+      }
+
+      // Prepare booking data for NEW SIMPLIFIED API (no booking ID needed!)
+      const bookingData = {
+        meetingName: selectedBookingForEmail.title || 'Meeting',
+        date: formatDate(selectedBookingForEmail.date),
+        startTime: formatTime(selectedBookingForEmail.startTime),
+        endTime: formatTime(selectedBookingForEmail.endTime),
+        place: selectedBookingForEmail.place || '',
+        description: selectedBookingForEmail.description || '',
+        participantEmails: participantEmails,
+        emailType: emailType || 'booking_details',
+        customMessage: '',
+        bookingRefId: selectedBookingForEmail.bookingRefId || '' // Include booking reference ID
+      }
+
+      // Use the new simplified API function
+      const result = await sendBookingEmailFromFrontend(bookingData)
+
+      if (result && result.success) {
+
+        // Show success alert popup
+        if (result.data?.emailsFailed && result.data.emailsFailed > 0) {
+          setEmailAlertMessage(`Emails sent to ${result.data.emailsSent} participants, ${result.data.emailsFailed} failed`)
+        } else {
+          setEmailAlertMessage(`Emails sent successfully to ${result.data?.emailsSent || participantEmails.length} participants`)
+        }
+        setEmailAlertType("success")
+        setIsEmailAlertDialogOpen(true)
+
+        // Close email dialog
+        setIsEmailDialogOpen(false)
+        setSelectedBookingForEmail(null)
+        setSelectedEmailParticipants([])
+        setBookingParticipants([])
+      } else {
+        // Show error alert popup
+        setEmailAlertMessage(result?.message || 'Failed to send emails. Please try again.')
+        setEmailAlertType("error")
+        setIsEmailAlertDialogOpen(true)
+      }
+
+    } catch (error: any) {
+      // Show error alert popup
+      setEmailAlertMessage('Failed to send email notifications')
+      setEmailAlertType("error")
+      setIsEmailAlertDialogOpen(true)
+    } finally {
+      setIsSendingEmails(false)
+    }
+  }
+
+
+
+  return (
+    <div className="space-y-3 px-2 sm:px-4 max-w-[98vw] mx-auto dark:bg-background">
+
+
+      {/* Hidden dialog - kept for edit functionality */}
+      <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+        <DialogContent className="max-w-[95vw] w-full max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>{editingBooking ? "Edit Booking" : "Create New Booking"}</DialogTitle>
+          </DialogHeader>
+          <form onSubmit={handleSubmit} className="space-y-6">
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="title">Booking Title *</Label>
+                <Input
+                  id="title"
+                  value={formData.title}
+                  onChange={(e) => setFormData({ ...formData, title: e.target.value })}
+                  required
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="date">Date *</Label>
+                <Input
+                  id="date"
+                  type="date"
+                  value={formData.date}
+                  onChange={(e) => setFormData({ ...formData, date: e.target.value })}
+                  required
+                />
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="description">Description</Label>
+              <Textarea
+                id="description"
+                value={formData.description}
+                onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                rows={3}
+              />
+            </div>
+
+            <div className="grid grid-cols-3 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="place">Place *</Label>
+                <Select
+                  value={formData.place}
+                  onValueChange={(value) => setFormData({ ...formData, place: value })}
+                  disabled={!formData.date || isLoadingPlaces}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder={
+                      !formData.date
+                        ? "Select date first"
+                        : isLoadingPlaces
+                          ? "Loading places..."
+                          : availablePlaces.length === 0
+                            ? "No places available"
+                            : "Select place"
+                    } />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {isLoadingPlaces ? (
+                      <div className="flex items-center justify-center p-4">
+                        <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                        <span>Loading available places...</span>
+                      </div>
+                    ) : availablePlaces.length === 0 ? (
+                      <div className="p-4 text-center text-muted-foreground">
+                        <AlertTriangle className="h-4 w-4 mx-auto mb-2" />
+                        <p className="text-sm">No places available for this date</p>
+                      </div>
+                    ) : (
+                      availablePlaces.map((place) => (
+                        <SelectItem key={place.id} value={place.id}>
+                          <div className="flex flex-col">
+                            <span className="font-medium">{place.name}</span>
+                            <span className="text-xs text-muted-foreground">
+                              {place.operatingHours} • Capacity: {place.capacity}
+                            </span>
+                          </div>
+                        </SelectItem>
+                      ))
+                    )}
+                  </SelectContent>
+                </Select>
+                {formData.date && !isLoadingPlaces && availablePlaces.length > 0 && (
+                  <p className="text-xs text-green-600">
+                    ✅ {availablePlaces.length} place(s) available for {getDayOfWeek(formData.date)}
+                  </p>
+                )}
+              </div>
+              <div className="col-span-2 space-y-2">
+                <Label htmlFor="timeSlot">Available Time Slots *</Label>
+                <Select
+                  value={selectedTimeGap}
+                  onValueChange={(value) => {
+                    setSelectedTimeGap(value)
+                    // Extract start and end time from selected gap
+                    const gap = availableTimeGaps.find(g => `${g.start} - ${g.end}` === value)
+                    if (gap) {
+                      setFormData({
+                        ...formData,
+                        startTime: gap.start,
+                        endTime: gap.end
+                      })
+                    }
+                  }}
+                  disabled={!formData.date || !formData.place}
+                >
+                  <SelectTrigger className="h-auto py-3">
+                    <SelectValue placeholder={
+                      !formData.date ? "Select date first" :
+                        !formData.place ? "Select place first" :
+                          availableTimeGaps.length === 0 ? "No available time slots" :
+                            "Select an available time slot"
+                    } />
+                  </SelectTrigger>
+                  <SelectContent className="max-h-[400px] w-full min-w-[500px]">
+                    {availableTimeGaps.length === 0 ? (
+                      <div className="p-4 text-center text-sm text-muted-foreground">
+                        {!formData.date || !formData.place ?
+                          "Select date and place first" :
+                          "No available time slots for this date and place"
+                        }
+                      </div>
+                    ) : (
+                      availableTimeGaps.map((gap) => (
+                        <SelectItem
+                          key={`${gap.start}-${gap.end}`}
+                          value={`${gap.start} - ${gap.end}`}
+                          className="py-3 cursor-pointer"
+                        >
+                          <div className="flex items-center justify-between w-full gap-8">
+                            <span className="font-semibold text-base">{gap.start} - {gap.end}</span>
+                            <span className="text-sm text-green-600 font-medium">Duration: {gap.duration}</span>
+                          </div>
+                        </SelectItem>
+                      ))
+                    )}
+                  </SelectContent>
+                </Select>
+                {availableTimeGaps.length > 0 && (
+                  <p className="text-xs text-green-600">
+                    ✅ {availableTimeGaps.length} time slot(s) available (min. {minBookingDuration >= 60 ? `${minBookingDuration / 60}h` : `${minBookingDuration}min`})
+                  </p>
+                )}
+                {selectedTimeGap && (
+                  <div className="p-4 bg-green-50 border-2 border-green-300 rounded-lg">
+                    <div className="flex items-center gap-2 mb-2">
+                      <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
+                      <p className="text-sm font-semibold text-green-900">Selected Time Slot</p>
+                    </div>
+                    <p className="text-lg font-bold text-green-800 mb-1">
+                      {selectedTimeGap}
+                    </p>
+                    <p className="text-xs text-green-700">
+                      Start: {formData.startTime} | End: {formData.endTime}
+                    </p>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="space-y-4">
+              <Label>Employee Participants</Label>
+
+              {/* Selected Employees Display */}
+              {formData.selectedEmployees.length > 0 && (
+                <div className="space-y-2">
+                  <p className="text-sm text-muted-foreground">
+                    Selected Employees ({formData.selectedEmployees.length})
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    {formData.selectedEmployees.map((employee) => (
+                      <Badge key={employee.id} variant="secondary" className="flex items-center gap-2 px-3 py-1">
+                        <div className="flex flex-col items-start">
+                          <span className="font-medium">{employee.name}</span>
+                          <span className="text-xs text-muted-foreground">
+                            {employee.department} • {employee.role}
+                          </span>
+                        </div>
+                        <X
+                          className="h-3 w-3 cursor-pointer hover:text-destructive"
+                          onClick={() => removeEmployee(employee.id)}
+                        />
+                      </Badge>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Smart Search Input */}
+              <div className="relative">
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                  <Input
+                    placeholder="Search employees by name, department, or role..."
+                    value={employeeSearch}
+                    onChange={(e) => handleEmployeeSearch(e.target.value)}
+                    onFocus={() => {
+                      if (filteredEmployees.length > 0) {
+                        setShowEmployeeDropdown(true)
+                      }
+                    }}
+                    className="pl-10 pr-10"
+                  />
+                  {employeeSearch && (
+                    <X
+                      className="absolute right-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground cursor-pointer hover:text-foreground"
+                      onClick={() => {
+                        setEmployeeSearch("")
+                        setShowEmployeeDropdown(false)
+                        setFilteredEmployees([])
+                      }}
+                    />
+                  )}
+                </div>
+
+                {/* Dropdown Results */}
+                {showEmployeeDropdown && filteredEmployees.length > 0 && (
+                  <div className="absolute z-50 w-full mt-1 bg-background border border-border rounded-md shadow-lg max-h-60 overflow-y-auto">
+                    {filteredEmployees.map((employee) => {
+                      const isSelected = formData.selectedEmployees.find((emp) => emp.id === employee.id)
+                      return (
+                        <div
+                          key={employee.id}
+                          className={`p-3 cursor-pointer hover:bg-muted transition-colors ${isSelected ? "bg-muted opacity-50" : ""
+                            }`}
+                          onClick={() => !isSelected && selectEmployee(employee)}
+                        >
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <p className="font-medium text-sm">{employee.name}</p>
+                              <p className="text-xs text-muted-foreground">
+                                {employee.department} • {employee.role}
+                              </p>
+                              <p className="text-xs text-muted-foreground">{employee.email}</p>
+                            </div>
+                            {isSelected && (
+                              <Badge variant="outline" className="text-xs">
+                                Selected
+                              </Badge>
+                            )}
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
+
+              {employeeSearch && filteredEmployees.length === 0 && (
+                <p className="text-sm text-muted-foreground">No employees found matching "{employeeSearch}"</p>
+              )}
+            </div>
+
+            <div className="space-y-4">
+              <div className="flex items-center gap-2">
+                <Label>Responsible Person *</Label>
+                <Badge variant="outline" className="text-xs">
+                  <Lock className="h-3 w-3 mr-1" />
+                  Locked
+                </Badge>
+              </div>
+              <p className="text-xs text-muted-foreground mb-2">
+                You are the responsible person for this booking and cannot be changed
+              </p>
+              {formData.responsiblePerson ? (
+                <div className="p-3 bg-primary/5 border-2 border-primary/20 rounded-lg">
+                  <div className="flex items-center gap-3">
+                    <Avatar className="h-10 w-10 border-2 border-primary">
+                      <AvatarFallback className="bg-primary text-primary-foreground font-semibold text-sm">
+                        {formData.responsiblePerson.name
+                          .split(" ")
+                          .map((n) => n[0])
+                          .join("")
+                          .substring(0, 2)
+                          .toUpperCase()}
+                      </AvatarFallback>
+                    </Avatar>
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2 mb-1">
+                        <p className="text-sm font-semibold">{formData.responsiblePerson.name}</p>
+                        <Lock className="h-3 w-3 text-muted-foreground" />
+                      </div>
+                      <p className="text-xs text-muted-foreground">{formData.responsiblePerson.email}</p>
+                      <Badge variant="outline" className="mt-1 text-xs">{formData.responsiblePerson.role}</Badge>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="p-3 bg-muted/50 border-2 border-dashed rounded-lg text-center">
+                  <p className="text-sm text-muted-foreground">No responsible person set</p>
+                </div>
+              )}
+            </div>
+
+            <div className="space-y-4">
+              <Label>External Participants</Label>
+
+              {formData.externalParticipants.length > 0 && (
+                <div className="space-y-2">
+                  {formData.externalParticipants.map((participant) => (
+                    <div key={participant.id} className="flex items-center justify-between p-3 bg-muted rounded-lg">
+                      <div>
+                        <p className="font-medium">{participant.fullName}</p>
+                        <p className="text-sm text-muted-foreground">
+                          {participant.email} • {participant.phone} • {participant.referenceType}:{" "}
+                          {participant.referenceValue}
+                        </p>
+                      </div>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => removeExternalParticipant(participant.id)}
+                      >
+                        <X className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-sm">Add External Participant</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="extFullName">Full Name *</Label>
+                      <Input
+                        id="extFullName"
+                        value={newExternalParticipant.fullName}
+                        onChange={(e) =>
+                          setNewExternalParticipant({ ...newExternalParticipant, fullName: e.target.value })
+                        }
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="extEmail">Email</Label>
+                      <Input
+                        id="extEmail"
+                        type="email"
+                        value={newExternalParticipant.email}
+                        onChange={(e) =>
+                          setNewExternalParticipant({ ...newExternalParticipant, email: e.target.value })
+                        }
+                      />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-3 gap-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="extPhone">Phone *</Label>
+                      <Input
+                        id="extPhone"
+                        type="tel"
+                        value={newExternalParticipant.phone}
+                        onChange={(e) =>
+                          setNewExternalParticipant({ ...newExternalParticipant, phone: e.target.value })
+                        }
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="extRefType">Reference Type *</Label>
+                      <Select
+                        value={newExternalParticipant.referenceType}
+                        onValueChange={(value: any) =>
+                          setNewExternalParticipant({ ...newExternalParticipant, referenceType: value })
+                        }
+                      >
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="NIC">NIC</SelectItem>
+                          <SelectItem value="Passport">Passport</SelectItem>
+                          <SelectItem value="Employee ID">Employee ID</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="extRefValue">Reference Value *</Label>
+                      <Input
+                        id="extRefValue"
+                        value={newExternalParticipant.referenceValue}
+                        onChange={(e) =>
+                          setNewExternalParticipant({ ...newExternalParticipant, referenceValue: e.target.value })
+                        }
+                      />
+                    </div>
+                  </div>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={addExternalParticipant}
+                    className="w-full bg-transparent"
+                  >
+                    Add Participant
+                  </Button>
+                </CardContent>
+              </Card>
+            </div>
+
+            <div className="space-y-4">
+              <div className="flex items-center space-x-2">
+                <input
+                  type="checkbox"
+                  id="refreshmentsRequired"
+                  checked={formData.refreshments.required}
+                  onChange={(e) =>
+                    setFormData({
+                      ...formData,
+                      refreshments: {
+                        ...formData.refreshments,
+                        required: e.target.checked,
+                      },
+                    })
+                  }
+                  className="rounded border-input"
+                />
+                <Label htmlFor="refreshmentsRequired" className="text-base font-medium">
+                  Refreshments Required
+                </Label>
+              </div>
+
+              {formData.refreshments.required && (
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-sm">Refreshment Details</CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <Label htmlFor="refreshmentType">Refreshment Type</Label>
+                        <Select
+                          value={formData.refreshments.type}
+                          onValueChange={(value) =>
+                            setFormData({
+                              ...formData,
+                              refreshments: {
+                                ...formData.refreshments,
+                                type: value,
+                              },
+                            })
+                          }
+                        >
+                          <SelectTrigger>
+                            <SelectValue placeholder="Select type" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="Light Refreshments">Light Refreshments</SelectItem>
+                            <SelectItem value="Full Catering">Full Catering</SelectItem>
+                            <SelectItem value="Beverages Only">Beverages Only</SelectItem>
+                            <SelectItem value="Custom">Custom</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="servingTime">Serving Time</Label>
+                        <Input
+                          id="servingTime"
+                          type="time"
+                          value={formData.refreshments.servingTime}
+                          onChange={(e) =>
+                            setFormData({
+                              ...formData,
+                              refreshments: {
+                                ...formData.refreshments,
+                                servingTime: e.target.value,
+                              },
+                            })
+                          }
+                        />
+                      </div>
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label>Refreshment Items</Label>
+                      <div className="flex flex-wrap gap-2 mb-2">
+                        {formData.refreshments.items.map((item) => (
+                          <Badge key={item} variant="secondary" className="flex items-center gap-1">
+                            {item}
+                            <X className="h-3 w-3 cursor-pointer" onClick={() => removeRefreshmentItem(item)} />
+                          </Badge>
+                        ))}
+                      </div>
+                      <div className="flex gap-2">
+                        <Select onValueChange={(value) => addRefreshmentItem(value)}>
+                          <SelectTrigger className="flex-1">
+                            <SelectValue placeholder="Add refreshment item" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="Coffee">Coffee</SelectItem>
+                            <SelectItem value="Tea">Tea</SelectItem>
+                            <SelectItem value="Water">Water</SelectItem>
+                            <SelectItem value="Juice">Juice</SelectItem>
+                            <SelectItem value="Cookies">Cookies</SelectItem>
+                            <SelectItem value="Sandwiches">Sandwiches</SelectItem>
+                            <SelectItem value="Lunch">Lunch</SelectItem>
+                            <SelectItem value="Breakfast">Breakfast</SelectItem>
+                            <SelectItem value="Dessert">Dessert</SelectItem>
+                            <SelectItem value="Fruits">Fruits</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <Label htmlFor="estimatedCount">Estimated Count</Label>
+                        <Input
+                          id="estimatedCount"
+                          type="number"
+                          min="1"
+                          value={formData.refreshments.estimatedCount}
+                          onChange={(e) =>
+                            setFormData({
+                              ...formData,
+                              refreshments: {
+                                ...formData.refreshments,
+                                estimatedCount: Number.parseInt(e.target.value) || 0,
+                              },
+                            })
+                          }
+                        />
+                      </div>
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label htmlFor="specialRequests">Special Requests</Label>
+                      <Textarea
+                        id="specialRequests"
+                        value={formData.refreshments.specialRequests}
+                        onChange={(e) =>
+                          setFormData({
+                            ...formData,
+                            refreshments: {
+                              ...formData.refreshments,
+                              specialRequests: e.target.value,
+                            },
+                          })
+                        }
+                        placeholder="Dietary restrictions, allergies, special requirements..."
+                        rows={2}
+                      />
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+            </div>
+
+            <div className="flex justify-end gap-2">
+              <Button type="button" variant="outline" onClick={() => setIsDialogOpen(false)}>
+                Cancel
+              </Button>
+              <Button type="submit">{editingBooking ? "Update" : "Create"} Booking</Button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Compact Header with Filters in One Line */}
+      <div className="flex flex-wrap items-center gap-2 p-1.5 bg-card/50 rounded-lg border mb-4">
+        {/* Search */}
+        <div className="relative flex-1 min-w-[200px]">
+          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+          <Input
+            placeholder="Search bookings..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="pl-8 h-8 text-xs rounded-md border-muted-foreground/20 focus-visible:ring-1 focus-visible:ring-primary/30 bg-background"
+          />
+        </div>
+
+        {/* Separator */}
+        <div className="h-6 w-px bg-border mx-1 hidden sm:block" />
+
+        {/* Filters Group */}
+        <div className="flex items-center gap-2 flex-wrap">
+          {/* Status */}
+          <Select value={statusFilter} onValueChange={setStatusFilter}>
+            <SelectTrigger className="w-[110px] h-8 text-xs rounded-md border-muted-foreground/20 bg-background shadow-none">
+              <SelectValue placeholder="Status" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all" className="text-xs">All Status</SelectItem>
+              <SelectItem value="upcoming" className="text-xs">Upcoming</SelectItem>
+              <SelectItem value="ongoing" className="text-xs">Ongoing</SelectItem>
+              <SelectItem value="completed" className="text-xs">Completed</SelectItem>
+              <SelectItem value="cancelled" className="text-xs">Cancelled</SelectItem>
+            </SelectContent>
+          </Select>
+
+          {/* Place */}
+          <Select value={placeFilter} onValueChange={setPlaceFilter}>
+            <SelectTrigger className="w-[130px] h-8 text-xs rounded-md border-muted-foreground/20 bg-background shadow-none">
+              <SelectValue placeholder="Place" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all" className="text-xs">All Places</SelectItem>
+              {availablePlaces.map(place => (
+                <SelectItem key={place.id} value={place.id} className="text-xs">{place.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
+          {/* Date Range - Compact & Clean */}
+          <div className="flex items-center gap-1.5 bg-background border border-muted-foreground/20 rounded-md px-2 h-8">
+            <Calendar className="h-3.5 w-3.5 text-muted-foreground" />
+            <input
+              type="date"
+              value={filterDateFrom}
+              onChange={(e) => setFilterDateFrom(e.target.value)}
+              className="h-full bg-transparent text-xs border-none focus:outline-none w-[110px] text-foreground p-0"
+            />
+            <span className="text-muted-foreground text-xs font-light px-0.5">to</span>
+            <input
+              type="date"
+              value={filterDateTo}
+              onChange={(e) => setFilterDateTo(e.target.value)}
+              className="h-full bg-transparent text-xs border-none focus:outline-none w-[110px] text-foreground p-0"
+              min={filterDateFrom || undefined}
+            />
+          </div>
+        </div>
+
+        {/* Action */}
+        <Button
+          onClick={() => window.location.href = '/staff/bookings/new'}
+          size="sm"
+          className="ml-auto h-8 text-xs gap-1.5 px-3 bg-primary hover:bg-primary/90 shadow-sm rounded-md"
+        >
+          <Plus className="h-3.5 w-3.5" />
+          <span>New</span>
+        </Button>
+      </div>
+
+      <Tabs value={activeTab} onValueChange={setActiveTab}>
+        <TabsList>
+          <TabsTrigger value="list">All Bookings ({filteredBookings.length})</TabsTrigger>
+          <TabsTrigger value="today">Today's Bookings ({todaysBookings.length})</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="list">
+          <Card className="dark:bg-card dark:border-border">
+            <CardHeader className="pb-3 hidden">
+              <CardTitle className="flex items-center gap-2 text-[13px]">
+                <Calendar className="h-4 w-4" />
+                All Bookings ({filteredBookings.length})
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="p-0">
+              {isLoadingBookings ? (
+                <div className="flex flex-col justify-center items-center py-12 space-y-4">
+                  <p className="text-muted-foreground animate-pulse">Loading all bookings...</p>
+                  <div className="w-[60%] max-w-md">
+                    <Progress value={loadingProgress} className="h-2" />
+                  </div>
+                  <p className="text-xs text-muted-foreground">{loadingProgress}% completed</p>
+                </div>
+              ) : bookingsError ? (
+                <Alert variant="destructive">
+                  <AlertTriangle className="h-4 w-4" />
+                  <AlertDescription>{bookingsError}</AlertDescription>
+                </Alert>
+              ) : filteredBookings.length === 0 ? (
+                <div className="text-center py-12">
+                  <Calendar className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
+                  <p className="text-muted-foreground">
+                    {bookings.length === 0
+                      ? (!filterDateFrom || !filterDateTo ? 'Please select a date range (max 7 days) and click Apply' : 'No bookings found for the selected range')
+                      : 'No bookings match your current filters'}
+                  </p>
+                  <p className="text-sm text-muted-foreground mt-2">
+                    {bookings.length === 0 && (!filterDateFrom || !filterDateTo)
+                      ? 'The system no longer loads all data by default for better performance.'
+                      : bookings.length === 0
+                        ? 'Try selecting a different date range or click "New Booking".'
+                        : 'Try adjusting your status or place filters.'}
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  <div className="border rounded-lg overflow-hidden dark:border-border">
+                    <div className="overflow-x-auto">
+                      <div className="overflow-y-auto max-h-[500px]">
+                        <Table>
+                          <TableHeader>
+                            <TableRow className="h-8 hover:bg-transparent">
+                              <TableHead className="sticky top-0 z-20 bg-muted/50 w-auto min-w-[150px] text-[11px] font-semibold h-8 py-1">Title</TableHead>
+                              <TableHead className="sticky top-0 z-20 bg-muted/50 w-auto min-w-[120px] text-[11px] font-semibold h-8 py-1">Date & Time</TableHead>
+                              <TableHead className="sticky top-0 z-20 bg-muted/50 w-auto min-w-[100px] text-[11px] font-semibold h-8 py-1">Place</TableHead>
+                              <TableHead className="sticky top-0 z-20 bg-muted/50 w-auto min-w-[150px] text-[11px] font-semibold h-8 py-1">Responsible</TableHead>
+                              <TableHead className="sticky top-0 z-20 bg-muted/50 w-auto min-w-[90px] text-[11px] font-semibold h-8 py-1">Status</TableHead>
+                              <TableHead className="sticky top-0 right-0 z-50 bg-muted/50 w-auto min-w-[100px] text-[11px] font-semibold h-8 py-1 border-l dark:border-border text-center">Actions</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {paginatedBookings.map((booking) => (
+                              <TableRow key={booking.id} onClick={(e) => e.stopPropagation()} className="h-auto hover:bg-muted/50">
+
+                                <TableCell className="py-1.5">
+                                  <div>
+                                    <div className="flex items-center gap-1.5">
+                                      <p className="font-medium text-[11px] truncate max-w-[180px]" title={booking.title}>{booking.title}</p>
+                                      {booking.refreshments?.required && (
+                                        <span className="text-[9px] px-1 py-0.5 rounded-full bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400 border border-orange-200 dark:border-orange-800">
+                                          🍽️
+                                        </span>
+                                      )}
+                                    </div>
+                                    {booking.description && (
+                                      <p className="text-[10px] text-muted-foreground truncate max-w-[180px]">{booking.description}</p>
+                                    )}
+                                  </div>
+                                </TableCell>
+                                <TableCell className="py-1.5">
+                                  <div className="flex flex-col gap-0.5">
+                                    <span className="text-[11px] font-medium">{formatDate(booking.date)}</span>
+                                    <span className="text-[10px] text-muted-foreground">
+                                      {formatTime(booking.startTime)} - {formatTime(booking.endTime)}
+                                    </span>
+                                  </div>
+                                </TableCell>
+                                <TableCell className="py-1.5 text-[11px]">
+                                  <div className="flex items-center gap-1.5 truncate max-w-[120px]" title={booking.place}>
+                                    <MapPin className="h-3 w-3 text-muted-foreground shrink-0" />
+                                    {booking.place}
+                                  </div>
+                                </TableCell>
+                                <TableCell className="py-1.5 text-[11px]">
+                                  {booking.responsiblePerson ? (
+                                    <div className="flex items-center gap-1.5">
+                                      <Avatar className="h-5 w-5">
+                                        <AvatarFallback className="text-[10px]">
+                                          {booking.responsiblePerson.name
+                                            .split(" ")
+                                            .map((n) => n[0])
+                                            .join("")}
+                                        </AvatarFallback>
+                                      </Avatar>
+                                      <div className="min-w-0">
+                                        <p className="text-[11px] font-medium truncate max-w-[120px]" title={booking.responsiblePerson.name}>{booking.responsiblePerson.name}</p>
+                                        <p className="text-[9px] text-muted-foreground truncate max-w-[120px]">{booking.responsiblePerson.department}</p>
+                                      </div>
+                                    </div>
+                                  ) : (
+                                    <span className="text-[10px] text-muted-foreground">Not assigned</span>
+                                  )}
+                                </TableCell>
+
+                                <TableCell className="py-1.5">
+                                  <Badge {...getStatusBadgeProps(booking.status)} className="text-[10px] px-1.5 py-0 h-5">
+                                    {booking.status}
+                                  </Badge>
+                                </TableCell>
+                                <TableCell className="sticky right-0 z-20 bg-background/95 border-l dark:border-border py-1">
+                                  <div className="flex items-center justify-center gap-1">
+                                    {(() => {
+                                      // Check if responsible person email matches current user email
+                                      const responsiblePersonEmail = booking.responsiblePerson?.email || ''
+                                      const currentUserEmail = user?.email || ''
+                                      const isResponsiblePerson = responsiblePersonEmail.toLowerCase().trim() === currentUserEmail.toLowerCase().trim()
+                                      const isCancelled = booking.status === 'cancelled'
+                                      const isCompleted = booking.status === "completed"
+                                      const isCancelledOrCompleted = isCancelled || isCompleted
+
+                                      if (isResponsiblePerson) {
+                                        return (
+                                          <>
+                                            {!isCancelledOrCompleted && (
+                                              <Button
+                                                variant="ghost"
+                                                size="icon"
+                                                onClick={(e) => {
+                                                  e.preventDefault()
+                                                  e.stopPropagation()
+                                                  handleSendEmailClick(booking)
+                                                }}
+                                                className="h-6 w-6 text-blue-600 hover:text-blue-700 hover:bg-blue-50 dark:text-blue-400 dark:hover:bg-blue-900/20"
+                                                title="Send email to participants"
+                                              >
+                                                <Mail className="h-3 w-3" />
+                                              </Button>
+                                            )}
+
+                                            {!isCancelled && !isCompleted && (
+                                              <Button
+                                                variant="ghost"
+                                                size="icon"
+                                                onClick={(e) => {
+                                                  e.preventDefault()
+                                                  e.stopPropagation()
+                                                  handleEdit(booking)
+                                                }}
+                                                className="h-6 w-6 hover:bg-muted"
+                                                title="Edit booking"
+                                              >
+                                                <Edit className="h-3 w-3" />
+                                              </Button>
+                                            )}
+
+                                            {!isCancelled && !isCompleted && (
+                                              <Button
+                                                variant="ghost"
+                                                size="icon"
+                                                onClick={(e) => {
+                                                  e.preventDefault()
+                                                  e.stopPropagation()
+                                                  handleCancel(booking.id)
+                                                }}
+                                                className="h-6 w-6 text-red-600 hover:text-red-700 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900/20"
+                                                title="Cancel booking"
+                                              >
+                                                <Trash2 className="h-3 w-3" />
+                                              </Button>
+                                            )}
+
+                                            {isCancelled && (
+                                              <Button
+                                                variant="ghost"
+                                                size="icon"
+                                                onClick={(e) => {
+                                                  e.preventDefault()
+                                                  e.stopPropagation()
+                                                  handleShowCancellationReason(booking)
+                                                }}
+                                                className="h-6 w-6 text-blue-600 hover:text-blue-700 hover:bg-blue-50 dark:text-blue-400 dark:hover:bg-blue-900/20"
+                                                title="View cancellation details"
+                                              >
+                                                <Info className="h-3 w-3" />
+                                              </Button>
+                                            )}
+                                          </>
+                                        )
+                                      }
+
+                                      if (isCancelled) {
+                                        return (
+                                          <Button
+                                            variant="ghost"
+                                            size="icon"
+                                            onClick={(e) => {
+                                              e.preventDefault()
+                                              e.stopPropagation()
+                                              handleShowCancellationReason(booking)
+                                            }}
+                                            className="h-6 w-6 text-blue-600 hover:text-blue-700 hover:bg-blue-50 dark:text-blue-400 dark:hover:bg-blue-900/20"
+                                            title="View cancellation details"
+                                          >
+                                            <Info className="h-3 w-3" />
+                                          </Button>
+                                        )
+                                      }
+
+                                      return null
+                                    })()}
+                                  </div>
+                                </TableCell>
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
+                      </div>
+                    </div>
+                  </div>
+
+                </div>
+              )}
+
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="today">
+          <Card className="dark:bg-card dark:border-border">
+            <CardHeader className="pb-3">
+              <CardTitle className="flex items-center gap-2 text-[13px]">
+                <Clock className="h-4 w-4" />
+                Today's Bookings ({todaysBookings.length})
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="p-3">
+              {todaysBookings.length === 0 ? (
+                <p className="text-center text-muted-foreground py-8">No bookings scheduled for today</p>
+              ) : (
+                <div className="space-y-4">
+                  {todaysBookings.map((booking) => (
+                    <Card key={booking.id}>
+                      <CardContent className="p-4">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <h3 className="font-medium">{booking.title}</h3>
+                              {booking.refreshments?.required && (
+                                <Badge variant="outline" className="text-orange-600 border-orange-600">
+                                  🍽️ Refreshments
+                                </Badge>
+                              )}
+                            </div>
+                            <p className="text-sm text-muted-foreground">
+                              {formatTime(booking.startTime)} - {formatTime(booking.endTime)} • {booking.place}
+                            </p>
+                            <p className="text-sm text-muted-foreground">
+                              Employees: {booking.selectedEmployees.map((emp) => emp.name).join(", ")}
+                            </p>
+                            {booking.refreshments?.required && (
+                              <p className="text-xs text-orange-600 mt-1">
+                                Refreshments: {booking.refreshments.type} at {formatTime(booking.refreshments.servingTime)} for{" "}
+                                {booking.refreshments.estimatedCount} people
+                              </p>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <div className="flex items-center gap-2">
+                              {(() => {
+                                // Check if user is the responsible person
+                                const responsiblePersonEmail = booking.responsiblePerson?.email || ''
+                                const currentUserEmail = user?.email || ''
+                                const isResponsiblePerson = responsiblePersonEmail.toLowerCase().trim() === currentUserEmail.toLowerCase().trim()
+                                const isCancelledOrCompleted = booking.status === "cancelled" || booking.status === "completed"
+
+                                // Only show Mail button if user is responsible person AND booking is NOT cancelled or completed
+                                if (isResponsiblePerson && !isCancelledOrCompleted) {
+                                  return (
+                                    <Button
+                                      onClick={() => handleSendEmailClick(booking)}
+                                      size="sm"
+                                      variant="outline"
+                                      className="flex items-center gap-1 text-blue-600 border-blue-600 hover:bg-blue-50"
+                                      title="Send email to participants"
+                                    >
+                                      <Mail className="h-4 w-4" />
+                                      Send Email
+                                    </Button>
+                                  )
+                                }
+                                return null
+                              })()}
+                            </div>
+                            <Badge {...getStatusBadgeProps(booking.status)}>{booking.status}</Badge>
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+      </Tabs>
+
+      {/* Confirmation Dialog */}
+      <Dialog open={isConfirmDialogOpen} onOpenChange={setIsConfirmDialogOpen}>
+        <DialogContent className="sm:max-w-md dark:bg-card dark:border-border">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 dark:text-foreground">
+              <AlertTriangle className="h-5 w-5 text-orange-500 dark:text-orange-400" />
+              {confirmTitle}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="py-4">
+            <p className="text-sm text-muted-foreground dark:text-muted-foreground">{confirmMessage}</p>
+          </div>
+          <div className="flex justify-end gap-3">
+            <Button
+              variant="outline"
+              onClick={() => setIsConfirmDialogOpen(false)}
+              className="dark:border-border dark:hover:bg-muted"
+            >
+              No, Keep It
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() => {
+                if (confirmAction) confirmAction()
+              }}
+              className="dark:bg-destructive dark:hover:bg-destructive/90"
+            >
+              Yes, Continue
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Cancellation Reason Dialog */}
+      <Dialog open={isCancellationDialog} onOpenChange={setIsCancellationDialog}>
+        <DialogContent className="sm:max-w-md dark:bg-card dark:border-border">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 dark:text-foreground">
+              <AlertTriangle className="h-5 w-5 text-red-500 dark:text-red-400" />
+              Cancel Booking
+            </DialogTitle>
+          </DialogHeader>
+          <div className="py-4 space-y-4">
+            <p className="text-sm text-muted-foreground dark:text-muted-foreground">
+              Please provide a reason for cancelling this booking. This information will be stored for records.
+            </p>
+            <div className="space-y-2">
+              <Label htmlFor="cancellationReason" className="dark:text-foreground">Cancellation Reason *</Label>
+              <Textarea
+                id="cancellationReason"
+                placeholder="Enter the reason for cancellation (e.g., Room unavailable, Event postponed, etc.)"
+                value={cancellationReason}
+                onChange={(e) => setCancellationReason(e.target.value)}
+                rows={4}
+                className="resize-none dark:bg-background dark:border-border dark:text-foreground"
+                required
+              />
+            </div>
+          </div>
+          <div className="flex justify-end gap-3">
+            <Button
+              variant="outline"
+              onClick={() => {
+                setIsCancellationDialog(false)
+                setCancellationReason("")
+                setBookingToCancel(null)
+              }}
+              className="dark:border-border dark:hover:bg-muted"
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={handleConfirmCancellation}
+              disabled={!cancellationReason.trim()}
+              className="dark:bg-destructive dark:hover:bg-destructive/90"
+            >
+              Confirm Cancellation
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* View Cancellation Reason Dialog */}
+      <Dialog open={isCancellationReasonDialogOpen} onOpenChange={setIsCancellationReasonDialogOpen}>
+        <DialogContent className="sm:max-w-md dark:bg-card dark:border-border">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 dark:text-foreground">
+              <Info className="h-5 w-5 text-blue-500 dark:text-blue-400" />
+              Cancellation Details
+            </DialogTitle>
+          </DialogHeader>
+          <div className="py-4 space-y-4">
+            {selectedCancellation && (
+              <>
+                <div className="space-y-2">
+                  <Label className="text-sm font-semibold dark:text-foreground">Cancellation Reason</Label>
+                  <div className="p-3 bg-gray-50 dark:bg-muted rounded-lg border dark:border-border">
+                    <p className="text-sm text-foreground dark:text-foreground whitespace-pre-wrap">
+                      {selectedCancellation.cancellation_reason || 'No reason provided'}
+                    </p>
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-4 pt-2 border-t dark:border-border">
+                  <div className="space-y-1">
+                    <Label className="text-xs text-muted-foreground dark:text-muted-foreground">Cancelled At</Label>
+                    <p className="text-sm font-medium dark:text-foreground">
+                      {selectedCancellation.cancelled_at
+                        ? new Date(selectedCancellation.cancelled_at).toLocaleString('en-US', {
+                          year: 'numeric',
+                          month: 'short',
+                          day: 'numeric',
+                          hour: '2-digit',
+                          minute: '2-digit'
+                        })
+                        : 'N/A'}
+                    </p>
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs text-muted-foreground dark:text-muted-foreground">Cancellation Type</Label>
+                    <p className="text-sm font-medium capitalize dark:text-foreground">
+                      {selectedCancellation.cancellation_type?.replace('_', ' ') || 'N/A'}
+                    </p>
+                  </div>
+                </div>
+              </>
+            )}
+            {!selectedCancellation && (
+              <div className="text-center py-4">
+                <p className="text-sm text-muted-foreground dark:text-muted-foreground">No cancellation details available</p>
+              </div>
+            )}
+          </div>
+          <div className="flex justify-end">
+            <Button
+              variant="outline"
+              onClick={() => {
+                setIsCancellationReasonDialogOpen(false)
+                setSelectedCancellation(null)
+              }}
+            >
+              Close
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Email Notification Dialog */}
+      <Dialog open={isEmailDialogOpen} onOpenChange={setIsEmailDialogOpen}>
+        <DialogContent className="sm:max-w-3xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Mail className="h-5 w-5 text-blue-600" />
+              Send Email Notifications
+            </DialogTitle>
+            {selectedBookingForEmail && (
+              <p className="text-sm text-muted-foreground">
+                Meeting: <strong>{selectedBookingForEmail.title}</strong> • {selectedBookingForEmail.date} at {formatTime(selectedBookingForEmail.startTime)}
+              </p>
+            )}
+          </DialogHeader>
+
+          {selectedBookingForEmail && (
+            <div className="space-y-6">
+              {/* Email Type Selection */}
+              <div className="space-y-2">
+                <Label htmlFor="emailType">Email Type</Label>
+                <Select value={emailType} onValueChange={(value: 'booking_details') => setEmailType(value)} disabled>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="booking_details">Booking Details</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* Participants Section */}
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-lg font-medium">Select Participants</h3>
+                  {isLoadingParticipants && (
+                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      Loading participants...
+                    </div>
+                  )}
+                </div>
+
+                {/* Select All */}
+                <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                  <div className="flex items-center space-x-2">
+                    <input
+                      type="checkbox"
+                      id="selectAllParticipants"
+                      checked={bookingParticipants.length > 0 &&
+                        bookingParticipants
+                          .filter(p => p.has_email === 1)
+                          .every(p => selectedEmailParticipants.includes(p.id))}
+                      onChange={handleSelectAllParticipants}
+                      className="h-4 w-4"
+                      disabled={isLoadingParticipants}
+                    />
+                    <Label htmlFor="selectAllParticipants" className="cursor-pointer font-medium">
+                      Select All Participants
+                    </Label>
+                  </div>
+                  <Badge variant="outline">
+                    {selectedEmailParticipants.length} of {bookingParticipants.filter(p => p.has_email === 1).length} selected
+                  </Badge>
+                </div>
+
+                {/* Participants List */}
+                <div className="space-y-3 max-h-60 overflow-y-auto">
+                  {isLoadingParticipants ? (
+                    <div className="text-center py-8">
+                      <Loader2 className="h-8 w-8 animate-spin mx-auto mb-2" />
+                      <p className="text-sm text-muted-foreground">Loading participants...</p>
+                    </div>
+                  ) : bookingParticipants.length === 0 ? (
+                    <div className="text-center py-8 text-muted-foreground">
+                      <Users className="h-12 w-12 mx-auto mb-2 opacity-50" />
+                      <p>No participants found for this booking</p>
+                      <p className="text-xs">Debug: bookingParticipants.length = {bookingParticipants.length}</p>
+                    </div>
+                  ) : (
+                    bookingParticipants.map((participant) => (
+                      <div key={participant.id} className="flex items-center justify-between p-3 border rounded-lg hover:bg-gray-50">
+                        <div className="flex items-center space-x-3">
+                          <input
+                            type="checkbox"
+                            id={`participant-${participant.id}`}
+                            checked={selectedEmailParticipants.includes(participant.id)}
+                            onChange={(e) => handleParticipantEmailSelection(participant.id, e.target.checked)}
+                            className="h-4 w-4"
+                            disabled={participant.has_email === 0}
+                          />
+                          <div className="flex items-center space-x-2">
+                            <Avatar className="h-8 w-8">
+                              <AvatarFallback className="text-xs">
+                                {(() => {
+                                  const name = participant.full_name || 'Unknown'
+                                  if (typeof name === 'string') {
+                                    return name.split(' ').map(n => n[0]).join('').toUpperCase()
+                                  }
+                                  return 'UN'
+                                })()}
+                              </AvatarFallback>
+                            </Avatar>
+                            <div>
+                              <p className="font-medium text-sm">
+                                {typeof participant.full_name === 'string' ? participant.full_name : 'Unknown Participant'}
+                              </p>
+                              <p className="text-xs text-muted-foreground">
+                                {participant.email || 'No email address'}
+                              </p>
+                              {participant.company_name && (
+                                <p className="text-xs text-muted-foreground">{participant.company_name}</p>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Badge
+                            variant={participant.has_email === 0 ? 'destructive' : 'outline'}
+                            className="text-xs"
+                          >
+                            {participant.member_type}
+                          </Badge>
+                          {participant.has_email === 0 && (
+                            <Badge variant="destructive" className="text-xs">
+                              No Email
+                            </Badge>
+                          )}
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+
+                {bookingParticipants.filter(p => p.has_email === 1).length === 0 && !isLoadingParticipants && (
+                  <div className="text-center py-8 text-muted-foreground">
+                    <Mail className="h-12 w-12 mx-auto mb-2 opacity-50" />
+                    <p>No participants with email addresses found</p>
+                    <p className="text-xs">Add email addresses to participants to enable email notifications</p>
+                  </div>
+                )}
+              </div>
+
+              {/* Action Buttons */}
+              <div className="flex justify-end items-center pt-4 border-t">
+                <div className="flex gap-2">
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      setIsEmailDialogOpen(false)
+                      setSelectedBookingForEmail(null)
+                      setSelectedEmailParticipants([])
+                      setBookingParticipants([])
+                    }}
+                    disabled={isSendingEmails}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    onClick={sendEmailNotifications}
+                    disabled={selectedEmailParticipants.length === 0 || isSendingEmails}
+                    className="flex items-center gap-2"
+                  >
+                    {isSendingEmails ? (
+                      <>
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        Sending...
+                      </>
+                    ) : (
+                      <>
+                        <Send className="h-4 w-4" />
+                        Send Emails ({selectedEmailParticipants.length})
+                      </>
+                    )}
+                  </Button>
+                </div>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Email Alert Dialog */}
+      <Dialog open={isEmailAlertDialogOpen} onOpenChange={setIsEmailAlertDialogOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              {emailAlertType === "success" ? (
+                <CheckCircle className="h-5 w-5 text-green-500" />
+              ) : (
+                <AlertTriangle className="h-5 w-5 text-red-500" />
+              )}
+              {emailAlertType === "success" ? "Email Sent Successfully" : "Email Sending Failed"}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="py-4">
+            <p className="text-sm text-muted-foreground">{emailAlertMessage}</p>
+          </div>
+          <div className="flex justify-end">
+            <Button onClick={() => setIsEmailAlertDialogOpen(false)}>
+              OK
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </div >
+  )
+}

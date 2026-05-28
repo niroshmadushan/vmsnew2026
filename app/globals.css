@@ -1,0 +1,638 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+:root {
+  /* Premium blue color palette for light theme */
+  --background: oklch(0.99 0.005 240); /* Pure white with subtle blue tint */
+  --foreground: oklch(0.15 0.02 240); /* Deep blue-gray */
+  --card: oklch(0.98 0.01 240); /* Subtle blue-tinted white */
+  --card-foreground: oklch(0.15 0.02 240); /* Deep blue-gray */
+  --popover: oklch(0.99 0.005 240); /* Pure white with blue tint */
+  --popover-foreground: oklch(0.15 0.02 240); /* Deep blue-gray */
+  --primary: oklch(0.45 0.18 240); /* Rich royal blue */
+  --primary-foreground: oklch(0.99 0.005 240); /* White */
+  --secondary: oklch(0.55 0.12 220); /* Lighter professional blue */
+  --secondary-foreground: oklch(0.99 0.005 240); /* White */
+  --muted: oklch(0.96 0.01 240); /* Very light blue-gray */
+  --muted-foreground: oklch(0.45 0.02 240); /* Medium blue-gray */
+  --accent: oklch(0.65 0.15 200); /* Sophisticated teal accent */
+  --accent-foreground: oklch(0.99 0.005 240); /* White */
+  --destructive: oklch(0.55 0.22 15); /* Professional red */
+  --destructive-foreground: oklch(0.99 0.005 240); /* White */
+  --border: oklch(0.88 0.01 240); /* Light blue-gray border */
+  --input: oklch(0.96 0.01 240); /* Light blue-gray input */
+  --ring: oklch(0.45 0.18 240); /* Royal blue focus ring */
+  --chart-1: oklch(0.45 0.18 240); /* Royal blue */
+  --chart-2: oklch(0.55 0.12 220); /* Professional blue */
+  --chart-3: oklch(0.65 0.15 200); /* Teal accent */
+  --chart-4: oklch(0.75 0.08 240); /* Light blue */
+  --chart-5: oklch(0.85 0.04 240); /* Very light blue */
+  --radius: 0.75rem; /* Slightly larger radius for premium feel */
+  --sidebar: oklch(0.97 0.01 240); /* Light blue sidebar */
+  --sidebar-foreground: oklch(0.25 0.02 240); /* Dark blue-gray */
+  --sidebar-primary: oklch(0.45 0.18 240); /* Royal blue */
+  --sidebar-primary-foreground: oklch(0.99 0.005 240); /* White */
+  --sidebar-accent: oklch(0.94 0.02 240); /* Subtle blue accent */
+  --sidebar-accent-foreground: oklch(0.25 0.02 240); /* Dark blue-gray */
+  --sidebar-border: oklch(0.88 0.01 240); /* Light border */
+  --sidebar-ring: oklch(0.45 0.18 240); /* Royal blue ring */
+}
+
+.dark {
+  /* Premium blue color palette for dark theme */
+  --background: oklch(0.08 0.01 240); /* Deep blue-black */
+  --foreground: oklch(0.95 0.01 240); /* Light blue-white */
+  --card: oklch(0.12 0.02 240); /* Dark blue card */
+  --card-foreground: oklch(0.95 0.01 240); /* Light blue-white */
+  --popover: oklch(0.1 0.01 240); /* Dark blue popover */
+  --popover-foreground: oklch(0.95 0.01 240); /* Light blue-white */
+  --primary: oklch(0.65 0.18 240); /* Bright royal blue */
+  --primary-foreground: oklch(0.08 0.01 240); /* Deep blue-black */
+  --secondary: oklch(0.35 0.12 220); /* Darker professional blue */
+  --secondary-foreground: oklch(0.95 0.01 240); /* Light blue-white */
+  --muted: oklch(0.18 0.02 240); /* Dark blue-gray */
+  --muted-foreground: oklch(0.65 0.02 240); /* Medium blue-gray */
+  --accent: oklch(0.55 0.15 200); /* Teal accent for dark */
+  --accent-foreground: oklch(0.08 0.01 240); /* Deep blue-black */
+  --destructive: oklch(0.65 0.22 15); /* Bright red for dark */
+  --destructive-foreground: oklch(0.08 0.01 240); /* Deep blue-black */
+  --border: oklch(0.22 0.02 240); /* Dark blue border */
+  --input: oklch(0.18 0.02 240); /* Dark blue input */
+  --ring: oklch(0.65 0.18 240); /* Bright blue ring */
+  --chart-1: oklch(0.65 0.18 240); /* Bright royal blue */
+  --chart-2: oklch(0.55 0.12 220); /* Professional blue */
+  --chart-3: oklch(0.55 0.15 200); /* Teal accent */
+  --chart-4: oklch(0.45 0.08 240); /* Medium blue */
+  --chart-5: oklch(0.35 0.04 240); /* Dark blue */
+  --sidebar: oklch(0.06 0.01 240); /* Very dark blue sidebar */
+  --sidebar-foreground: oklch(0.85 0.01 240); /* Light blue-gray */
+  --sidebar-primary: oklch(0.65 0.18 240); /* Bright royal blue */
+  --sidebar-primary-foreground: oklch(0.95 0.01 240); /* Light blue-white */
+  --sidebar-accent: oklch(0.15 0.02 240); /* Dark blue accent */
+  --sidebar-accent-foreground: oklch(0.85 0.01 240); /* Light blue-gray */
+  --sidebar-border: oklch(0.22 0.02 240); /* Dark border */
+  --sidebar-ring: oklch(0.65 0.18 240); /* Bright blue ring */
+}
+
+/* Custom Scrollbar Styles */
+/* Custom Scrollbar Styles - Premium Thin */
+.scrollbar-thin::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+
+.scrollbar-thin::-webkit-scrollbar-track {
+  background: transparent;
+  border-radius: 10px;
+}
+
+.scrollbar-thin::-webkit-scrollbar-thumb {
+  background: rgba(var(--primary), 0.15);
+  border-radius: 10px;
+  border: 1px solid transparent;
+  background-clip: content-box;
+}
+
+.scrollbar-thin:hover::-webkit-scrollbar-thumb {
+  background: rgba(var(--primary), 0.35);
+}
+
+/* Futuristic Zip Scrollbar */
+.zip-scrollbar::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+}
+
+.zip-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.zip-scrollbar::-webkit-scrollbar-thumb {
+  background-color: var(--primary);
+  border-radius: 20px;
+  border: 1px solid transparent;
+}
+
+.zip-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: var(--primary) transparent;
+}
+
+.scrollbar-thin::-webkit-scrollbar-thumb:hover {
+  background: rgba(var(--primary), 0.5);
+}
+
+/* Firefox scrollbar */
+.scrollbar-thin {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(var(--primary), 0.2) transparent;
+}
+
+@theme inline {
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+
+  html {
+    /* Prevent horizontal scroll and ensure proper height */
+    overflow-x: hidden;
+    height: 100%;
+  }
+
+  body {
+    @apply bg-background text-foreground transition-colors duration-300;
+    /* Ensure proper height and prevent layout shifts */
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* Enhanced responsive layout utilities */
+  .layout-container {
+    @apply w-full max-w-none overflow-hidden;
+  }
+
+  .content-area {
+    @apply w-full min-w-0 flex-1;
+  }
+
+  .sidebar-content {
+    @apply overflow-y-auto overflow-x-hidden;
+    scrollbar-width: thin;
+  }
+
+  /* Improved sidebar animations to work with native sidebar transitions */
+  /* Sidebar-specific animations that don't conflict with built-in transitions */
+  .sidebar-smooth {
+    transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  /* Enhanced but non-conflicting animations */
+  .animate-fade-in {
+    animation: fadeInSmooth 0.4s ease-out forwards;
+  }
+
+  .animate-slide-up {
+    animation: slideUpSmooth 0.5s ease-out forwards;
+  }
+
+  .animate-scale-in {
+    animation: scaleInSmooth 0.3s ease-out forwards;
+  }
+
+  .animate-bounce-gentle {
+    animation: bounceGentle 2s ease-in-out infinite;
+  }
+
+  .animate-pulse-slow {
+    animation: pulseGlow 3s ease-in-out infinite;
+  }
+
+  .animate-gradient {
+    animation: gradientShift 6s ease-in-out infinite;
+    background-size: 200% 200%;
+  }
+
+  /* Improved hover effects that don't interfere with sidebar */
+  .hover-lift {
+    transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  .hover-lift:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px -2px rgba(0, 0, 0, 0.1);
+  }
+
+  /* Sidebar-specific hover that doesn't conflict */
+  .sidebar-hover {
+    transition: background-color 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  .hover-glow:hover {
+    box-shadow: 0 0 20px rgba(var(--primary), 0.3);
+  }
+
+  /* Enhanced mobile-specific styles */
+  @media (max-width: 768px) {
+    .mobile-optimized {
+      @apply text-sm leading-relaxed;
+    }
+
+    .mobile-padding {
+      @apply px-4 py-3;
+    }
+
+    .mobile-grid {
+      @apply grid-cols-1 gap-4;
+    }
+  }
+
+  /* Improved text truncation and overflow handling */
+  .text-truncate-responsive {
+    @apply truncate;
+    max-width: 100%;
+  }
+
+  .content-safe {
+    @apply break-words;
+    /* Replaced invalid Tailwind utility with standard CSS property */
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+  }
+
+  /* Loading states */
+  .skeleton {
+    background: linear-gradient(90deg, transparent, rgba(var(--primary), 0.1), transparent);
+    background-size: 200% 100%;
+    animation: shimmer 1.5s infinite;
+  }
+
+  /* Custom scrollbar for table horizontal scrolling */
+  .table-scroll-container {
+    overflow-x: auto;
+    overflow-y: visible;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(var(--primary), 0.2) transparent;
+  }
+
+  .table-scroll-container::-webkit-scrollbar {
+    height: 5px;
+  }
+
+  .table-scroll-container::-webkit-scrollbar-track {
+    background: transparent;
+    border-radius: 10px;
+  }
+
+  .table-scroll-container::-webkit-scrollbar-thumb {
+    background: rgba(var(--primary), 0.15);
+    border-radius: 10px;
+  }
+
+  .table-scroll-container::-webkit-scrollbar-thumb:hover {
+    background: rgba(var(--primary), 0.4);
+  }
+
+  /* Custom scrollbar for table vertical scrolling (when rows exceed 7) */
+  .table-scroll-container-vertical {
+    overflow-x: visible;
+    overflow-y: auto;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(var(--primary), 0.2) transparent;
+  }
+
+  .table-scroll-container-vertical::-webkit-scrollbar {
+    width: 5px;
+  }
+
+  .table-scroll-container-vertical::-webkit-scrollbar-track {
+    background: transparent;
+    border-radius: 10px;
+  }
+
+  .table-scroll-container-vertical::-webkit-scrollbar-thumb {
+    background: rgba(var(--primary), 0.15);
+    border-radius: 10px;
+  }
+
+  .table-scroll-container-vertical::-webkit-scrollbar-thumb:hover {
+    background: rgba(var(--primary), 0.4);
+  }
+}
+
+/* Updated animation keyframes for better performance and less conflict */
+@keyframes fadeInSmooth {
+  from {
+    opacity: 0;
+    transform: translateY(5px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes slideUpSmooth {
+  from {
+    opacity: 0;
+    transform: translateY(15px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes scaleInSmooth {
+  from {
+    opacity: 0;
+    transform: scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes bounceGentle {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-5px);
+  }
+}
+
+@keyframes pulseGlow {
+  0%,
+  100% {
+    box-shadow: 0 0 5px rgba(var(--primary), 0.5);
+  }
+  50% {
+    box-shadow: 0 0 20px rgba(var(--primary), 0.8), 0 0 30px rgba(var(--primary), 0.4);
+  }
+}
+
+@keyframes gradientShift {
+  0% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: 0% 50%;
+  }
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+/* Premium focus states */
+.focus-ring {
+  @apply focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 focus:ring-offset-background;
+}
+
+/* Smooth transitions for interactive elements */
+button,
+a,
+input,
+select {
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Enhanced custom scrollbar with better mobile support */
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(var(--primary), 0.15);
+  border-radius: 10px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(var(--primary), 0.35);
+}
+
+/* Better mobile scrollbar for Firefox */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(var(--primary), 0.15) transparent;
+}
+
+/* Custom scrollbar for refreshments page */
+.custom-scrollbar::-webkit-scrollbar {
+  width: 8px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: #f1f1f1;
+  border-radius: 4px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: #c1c1c1;
+  border-radius: 4px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: #a8a8a8;
+}
+
+/* Dark mode scrollbar */
+.dark .custom-scrollbar::-webkit-scrollbar-track {
+  background: #2d2d2d;
+}
+
+.dark .custom-scrollbar::-webkit-scrollbar-thumb {
+  background: #555;
+}
+
+.dark .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: #777;
+}
+
+/* Selection styling */
+::selection {
+  background: rgba(var(--primary), 0.2);
+  color: var(--foreground);
+}
+
+/* Enhanced responsive utilities */
+@media (max-width: 640px) {
+  .responsive-text {
+    @apply text-sm;
+  }
+
+  .responsive-padding {
+    @apply p-4;
+  }
+
+  .responsive-margin {
+    @apply m-2;
+  }
+}
+
+@media (min-width: 768px) {
+  .responsive-text {
+    @apply text-base;
+  }
+
+  .responsive-padding {
+    @apply p-6;
+  }
+
+  .responsive-margin {
+    @apply m-4;
+  }
+}
+
+/* Enhanced sidebar-specific styles for smooth operation */
+/* Sidebar animation improvements */
+[data-slot="sidebar-container"] {
+  transition: left 0.3s cubic-bezier(0.4, 0, 0.2, 1), right 0.3s cubic-bezier(0.4, 0, 0.2, 1), width 0.3s
+    cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+[data-slot="sidebar-gap"] {
+  transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Improved sidebar trigger animation */
+[data-slot="sidebar-trigger"] {
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+[data-slot="sidebar-trigger"]:hover {
+  transform: scale(1.05);
+}
+
+/* Better sidebar menu button animations */
+[data-slot="sidebar-menu-button"] {
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Smooth sidebar content transitions */
+[data-slot="sidebar-content"] {
+  transition: opacity 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Enhanced mobile sidebar animations */
+
+/* Premium Active Sidebar Menu Button Override - Futuristic Glow */
+[data-slot="sidebar-menu-button"][data-active="true"] {
+  background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%) !important;
+  color: #ffffff !important;
+  font-weight: 700 !important;
+  border-radius: 12px !important;
+  position: relative !important;
+  padding-left: 14px !important;
+  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.25) !important;
+}
+[data-slot="sidebar-menu-button"][data-active="true"]::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 20%;
+  height: 60%;
+  width: 4px;
+  background-color: #ffffff;
+  border-radius: 0 4px 4px 0;
+}
+[data-slot="sidebar-menu-button"][data-active="true"] svg {
+  color: #ffffff !important;
+}
+
+/* Inactive Sidebar Button Slide-in Hover Interaction */
+[data-slot="sidebar-menu-button"] {
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1) !important;
+}
+[data-slot="sidebar-menu-button"]:hover:not([data-active="true"]) {
+  background-color: rgba(59, 130, 246, 0.08) !important;
+  color: #2563eb !important;
+  transform: translateX(4px);
+}
+[data-slot="sidebar-menu-button"]:hover:not([data-active="true"]) svg {
+  color: #2563eb !important;
+  transform: scale(1.15);
+}
+
+/* Premium Sidebar Section Headers (Group Labels) Override with bullet points */
+[data-slot="sidebar-group-label"] {
+  text-transform: uppercase !important;
+  letter-spacing: 0.2em !important;
+  font-weight: 800 !important;
+  font-size: 0.62rem !important;
+  color: oklch(0.55 0.03 240) !important;
+  margin-bottom: 0.6rem !important;
+  margin-top: 1rem !important;
+  padding-left: 0.5rem !important;
+  display: flex !important;
+  align-items: center !important;
+  gap: 8px !important;
+}
+[data-slot="sidebar-group-label"]::before {
+  content: "";
+  display: inline-block;
+  width: 4px;
+  height: 4px;
+  background-color: #3b82f6;
+  border-radius: 50%;
+  opacity: 0.7;
+}
+
+/* Advanced Glassmorphic Sidebar styling */
+[data-sidebar="sidebar"] {
+  background-color: rgba(248, 250, 252, 0.8) !important;
+  backdrop-filter: blur(12px) !important;
+  border-right: 1px solid rgba(226, 232, 240, 0.6) !important;
+}
+.dark [data-sidebar="sidebar"] {
+  background-color: rgba(15, 23, 42, 0.82) !important;
+  backdrop-filter: blur(12px) !important;
+  border-right: 1px solid rgba(30, 41, 59, 0.5) !important;
+}
+
+/* Sign Out Button Hover Effect */
+[data-slot="sidebar-footer"] button {
+  transition: all 0.3s ease !important;
+}
+[data-slot="sidebar-footer"] button:hover {
+  transform: scale(1.02);
+  box-shadow: 0 0 10px rgba(239, 68, 68, 0.1) !important;
+}

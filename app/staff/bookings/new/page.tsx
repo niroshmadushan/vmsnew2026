@@ -1,0 +1,2804 @@
+"use client"
+
+import { useState, useEffect } from "react"
+import { useRouter } from "next/navigation"
+import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import { Textarea } from "@/components/ui/textarea"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Badge } from "@/components/ui/badge"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { ArrowLeft, Calendar, MapPin, Users, X, Search, Clock, Utensils, Save, Edit, ExternalLink } from "lucide-react"
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog"
+import { placeManagementAPI } from "@/lib/place-management-api"
+import toast from "react-hot-toast"
+import { RouteProtection } from "@/components/auth/route-protection"
+import { DashboardLayout } from "@/components/layout/dashboard-layout"
+import { useAuth } from "@/lib/auth-context"
+import { Avatar, AvatarFallback } from "@/components/ui/avatar"
+import {
+  sanitizeInput,
+  validateText,
+  validateEmail,
+  validatePhone,
+  validateName,
+  validateBookingData,
+  validateExternalParticipant,
+  sanitizeObject
+} from "@/lib/validation"
+
+interface ExternalParticipant {
+  id: string
+  fullName: string
+  email: string
+  phone: string
+  referenceType: "NIC" | "Passport" | "Employee ID"
+  referenceValue: string
+}
+
+interface RefreshmentDetails {
+  required: boolean
+  type: string
+  items: string[]
+  servingTime: string
+  specialRequests: string
+  estimatedCount: number
+}
+
+interface Employee {
+  id: string
+  name: string
+  email: string
+  department: string
+  role: string
+  phone: string
+}
+
+interface UserProfile {
+  id: string
+  email: string
+  full_name: string
+  role: string
+}
+
+interface Place {
+  id: string
+  name: string
+  description: string
+  city: string
+  state: string
+  place_type: string
+  capacity: number
+  is_active: boolean
+}
+
+interface PlaceConfiguration {
+  id: string
+  place_id: string
+  available_monday: boolean
+  available_tuesday: boolean
+  available_wednesday: boolean
+  available_thursday: boolean
+  available_friday: boolean
+  available_saturday: boolean
+  available_sunday: boolean
+  start_time: string
+  end_time: string
+  allow_bookings: boolean
+  max_bookings_per_day: number
+  booking_slot_duration: number
+}
+
+interface AvailablePlace extends Place {
+  configuration?: PlaceConfiguration
+  isAvailableForDate?: boolean
+  operatingHours?: string
+}
+
+interface Booking {
+  id: string
+  title: string
+  description: string
+  date: string
+  place: string
+  placeId?: string
+  startTime: string
+  endTime: string
+}
+
+export default function StaffNewBookingPage() {
+  const router = useRouter()
+  const { user } = useAuth()
+
+  // Form Data State
+  const [formData, setFormData] = useState({
+    title: "",
+    description: "",
+    date: "",
+    place: "",
+    startTime: "",
+    endTime: "",
+    responsiblePerson: null as Employee | null,
+    selectedEmployees: [] as Employee[],
+    externalParticipants: [] as ExternalParticipant[],
+    refreshments: {
+      required: false,
+      type: "",
+      items: [] as string[],
+      servingTime: "",
+      specialRequests: "",
+      estimatedCount: 0,
+    },
+  })
+
+  // Available Places State
+  const [availablePlaces, setAvailablePlaces] = useState<AvailablePlace[]>([])
+  const [isLoadingPlaces, setIsLoadingPlaces] = useState(false)
+
+  // Time Gaps State
+  const [availableTimeGaps, setAvailableTimeGaps] = useState<{ start: string, end: string, duration: string }[]>([])
+  const [selectedTimeGap, setSelectedTimeGap] = useState<string>("")
+  const [minBookingDuration, setMinBookingDuration] = useState<number>(30)
+
+  // Custom time selection within gap
+  const [availableStartTimes, setAvailableStartTimes] = useState<string[]>([])
+  const [availableEndTimes, setAvailableEndTimes] = useState<string[]>([])
+  const [selectedGapStart, setSelectedGapStart] = useState<string>("")
+  const [selectedGapEnd, setSelectedGapEnd] = useState<string>("")
+
+  // Users State
+  const [users, setUsers] = useState<UserProfile[]>([])
+  const [isLoadingUsers, setIsLoadingUsers] = useState(false)
+
+  // Bookings State (for conflict checking)
+  const [existingBookings, setExistingBookings] = useState<Booking[]>([])
+
+  // UI State
+  const [employeeSearch, setEmployeeSearch] = useState("")
+  const [responsibleSearch, setResponsibleSearch] = useState("")
+  const [showResponsibleDropdown, setShowResponsibleDropdown] = useState(false)
+
+  // External Member Search state
+  const [memberSearch, setMemberSearch] = useState("")
+  const [searchedMembers, setSearchedMembers] = useState<any[]>([])
+  const [showMemberDropdown, setShowMemberDropdown] = useState(false)
+
+  // External Member Edit state
+  const [isEditMemberDialogOpen, setIsEditMemberDialogOpen] = useState(false)
+  const [editingExternalMember, setEditingExternalMember] = useState<ExternalParticipant | null>(null)
+  const [editingMemberFormData, setEditingMemberFormData] = useState({
+    full_name: "",
+    email: "",
+    phone: "",
+    company_name: "",
+    designation: "",
+    reference_type: "NIC",
+    reference_value: "",
+    address: "",
+    city: "",
+    country: "Sri Lanka",
+    notes: ""
+  })
+  const [isUpdatingMember, setIsUpdatingMember] = useState(false)
+
+  // Email Notification State
+  const [selectedEmailParticipants, setSelectedEmailParticipants] = useState<string[]>([])
+
+  // Confirmation Dialog State
+  const [isCancelConfirmDialogOpen, setIsCancelConfirmDialogOpen] = useState(false)
+  const [isCreateConfirmDialogOpen, setIsCreateConfirmDialogOpen] = useState(false)
+
+  const [newExternalParticipant, setNewExternalParticipant] = useState({
+    fullName: "",
+    email: "",
+    phone: "",
+    referenceType: "NIC" as "NIC" | "Passport" | "Employee ID",
+    referenceValue: "",
+  })
+  const [isSubmitting, setIsSubmitting] = useState(false)
+
+  // Refreshment serving time options
+  const [servingTimeOptions, setServingTimeOptions] = useState<string[]>([])
+
+  // Refreshment types and items from database
+  const [refreshmentTypes, setRefreshmentTypes] = useState<Array<{ id: string, name: string, code: string }>>([])
+  const [refreshmentItems, setRefreshmentItems] = useState<Array<{ id: string, name: string, type_id: string }>>([])
+  const [availableItemsForType, setAvailableItemsForType] = useState<Array<{ id: string, name: string }>>([])
+  const [selectedRefreshmentItem, setSelectedRefreshmentItem] = useState<string>("")
+
+  // Auto-set current user as responsible person
+  useEffect(() => {
+    if (user) {
+      const currentUserAsResponsible = {
+        id: user.id || '',
+        name: user.full_name || user.email || '',
+        email: user.email || '',
+        department: '',
+        role: user.role || 'staff',
+        phone: ''
+      }
+      setFormData(prev => {
+        // Only set if not already set
+        if (!prev.responsiblePerson) {
+          return {
+            ...prev,
+            responsiblePerson: currentUserAsResponsible
+          }
+        }
+        return prev
+      })
+    }
+  }, [user])
+
+  // Load refreshment types and items
+  useEffect(() => {
+    const loadRefreshments = async () => {
+      try {
+        // Load types
+        const typesResponse = await placeManagementAPI.getTableData('refreshment_types', {
+          is_deleted: 'false',
+          is_active: 'true'
+        })
+        const typesData = Array.isArray(typesResponse) ? typesResponse : typesResponse?.data || []
+        setRefreshmentTypes(typesData)
+
+        // Load items
+        const itemsResponse = await placeManagementAPI.getTableData('refreshment_items', {
+          is_deleted: 'false',
+          is_active: 'true'
+        })
+        const itemsData = Array.isArray(itemsResponse) ? itemsResponse : itemsResponse?.data || []
+        setRefreshmentItems(itemsData)
+      } catch (error) {
+        console.error('Error loading refreshments:', error)
+        // Fallback to default types if table doesn't exist
+        setRefreshmentTypes([
+          { id: '1', name: 'Beverages', code: 'beverages' },
+          { id: '2', name: 'Light Snacks', code: 'light_snacks' },
+          { id: '3', name: 'Full Meal', code: 'full_meal' },
+          { id: '4', name: 'Custom', code: 'custom' },
+        ])
+      }
+    }
+    loadRefreshments()
+  }, [])
+
+  // Filter items based on selected type
+  useEffect(() => {
+    if (formData.refreshments.type && refreshmentItems.length > 0) {
+      // Find type by code
+      const selectedType = refreshmentTypes.find(t => t.code === formData.refreshments.type)
+      if (selectedType) {
+        const filtered = refreshmentItems
+          .filter(item => item.type_id === selectedType.id)
+          .map(item => ({ id: item.id, name: item.name }))
+        setAvailableItemsForType(filtered)
+      } else {
+        setAvailableItemsForType([])
+      }
+    } else {
+      setAvailableItemsForType([])
+    }
+  }, [formData.refreshments.type, refreshmentTypes, refreshmentItems])
+
+  // Fetch users on mount
+  useEffect(() => {
+    const fetchUsers = async () => {
+      try {
+        setIsLoadingUsers(true)
+        let allUsersData: UserProfile[] = []
+        let currentPage = 1
+        let keepFetching = true
+
+        while (keepFetching) {
+          const response = await placeManagementAPI.getTableData('userprofile', {
+            limit: 100,
+            page: currentPage
+          })
+
+          const pageData = Array.isArray(response) ? response : response?.data || []
+          if (pageData.length > 0) {
+            allUsersData = [...allUsersData, ...pageData]
+          }
+
+          if (pageData.length < 100) {
+            keepFetching = false
+          } else {
+            currentPage++
+            if (currentPage > 20) keepFetching = false // Safety cap
+          }
+        }
+        // Don't filter here - we'll filter by role in the UI components
+        // This allows us to show admins for responsible person and exclude staff from participants
+        const filteredUsers = allUsersData
+
+        setUsers(filteredUsers)
+      } catch (error) {
+        console.error('Failed to fetch users:', error)
+      } finally {
+        setIsLoadingUsers(false)
+      }
+    }
+
+    fetchUsers()
+  }, [])
+
+  // Fetch bookings for conflict checking whenever date changes
+  useEffect(() => {
+    const fetchBookingsForDate = async (dateString: string) => {
+      try {
+        let allBookingsData: any[] = []
+        let currentPage = 1
+        let keepFetching = true
+
+        while (keepFetching) {
+          const bookingsResponse = await placeManagementAPI.getTableData('bookings', {
+            filters: [
+              { column: 'is_deleted', operator: 'equals', value: 0 },
+              { column: 'booking_date', operator: 'equals', value: dateString }
+            ],
+            limit: 100,
+            page: currentPage
+          })
+
+          const pageData = Array.isArray(bookingsResponse) ? bookingsResponse : []
+          if (pageData.length > 0) {
+            allBookingsData = [...allBookingsData, ...pageData]
+          }
+
+          if (pageData.length < 100) {
+            keepFetching = false
+          } else {
+            currentPage++
+            if (currentPage > 20) keepFetching = false // Safety cap
+          }
+        }
+
+        // Filter out cancelled bookings
+        const activeBookings = allBookingsData.filter((booking: any) => {
+          const status = booking.status?.toLowerCase()?.trim()
+          const isCancelled = status === 'cancelled' || !!booking.cancelled_at
+          return !isCancelled
+        })
+
+        const transformedBookings: Booking[] = activeBookings.map((booking: any) => {
+          // Normalize date
+          let normalizedDate = booking.booking_date
+          if (normalizedDate && typeof normalizedDate === 'string' && normalizedDate.includes('T')) {
+            const d = new Date(normalizedDate)
+            normalizedDate = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+          }
+
+          return {
+            id: booking.id,
+            title: booking.title,
+            description: booking.description || '',
+            date: normalizedDate,
+            place: booking.place_name,
+            placeId: booking.place_id,
+            startTime: booking.start_time.substring(0, 5),
+            endTime: booking.end_time.substring(0, 5)
+          }
+        })
+
+        setExistingBookings(transformedBookings)
+      } catch (error) {
+        console.error('Failed to fetch bookings for date:', error)
+      }
+    }
+
+    if (formData.date) {
+      fetchBookingsForDate(formData.date)
+    }
+  }, [formData.date])
+
+  // Read URL parameters and pre-fill form
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search)
+      const place = params.get('place')
+      const date = params.get('date')
+      const startTime = params.get('startTime')
+      const endTime = params.get('endTime')
+
+      console.log('📋 URL Parameters:', { place, date, startTime, endTime })
+
+      if (place || date || startTime || endTime) {
+        setFormData(prev => ({
+          ...prev,
+          ...(place && { place }),
+          ...(date && { date }),
+          ...(startTime && { startTime }),
+          ...(endTime && { endTime })
+        }))
+
+        // Show success message
+        if (place && date && startTime && endTime) {
+          toast.success('✅ Pre-filled from availability check!', {
+            duration: 3000,
+            position: 'top-center'
+          })
+        }
+      }
+    }
+  }, [])
+
+  // Helper function to get day of week
+  const getDayOfWeek = (dateString: string) => {
+    const days = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday']
+    // Parse date string (YYYY-MM-DD) and create date in local timezone to avoid timezone issues
+    const [year, month, day] = dateString.split('-').map(Number)
+    const date = new Date(year, month - 1, day) // month is 0-indexed in Date constructor
+    return days[date.getDay()]
+  }
+
+  // Fetch available places when date is selected
+  useEffect(() => {
+    const fetchAvailablePlaces = async (dateString: string) => {
+      try {
+        setIsLoadingPlaces(true)
+
+        const dayOfWeek = getDayOfWeek(dateString)
+
+        // Fetch all active, non-deleted places using recursive paging
+        let allPlacesData: Place[] = []
+        let currentPlacePage = 1
+        let keepFetchingPlaces = true
+
+        while (keepFetchingPlaces) {
+          const response = await placeManagementAPI.getTableData('places', {
+            filters: [
+              { column: 'is_active', operator: 'equals', value: 1 },
+              { column: 'is_deleted', operator: 'equals', value: 0 }
+            ],
+            limit: 100,
+            page: currentPlacePage
+          })
+
+          const pageData = Array.isArray(response) ? response : response?.data || []
+          if (pageData.length > 0) {
+            allPlacesData = [...allPlacesData, ...pageData]
+          }
+
+          if (pageData.length < 100) {
+            keepFetchingPlaces = false
+          } else {
+            currentPlacePage++
+            if (currentPlacePage > 20) keepFetchingPlaces = false
+          }
+        }
+
+        // Fetch all configurations using recursive paging
+        let configsData: any[] = []
+        let currentConfigPage = 1
+        let keepFetchingConfigs = true
+
+        while (keepFetchingConfigs) {
+          const response = await placeManagementAPI.getTableData('place_configuration', {
+            limit: 100,
+            page: currentConfigPage
+          })
+
+          const pageData = Array.isArray(response) ? response : response?.data || []
+          if (pageData.length > 0) {
+            configsData = [...configsData, ...pageData]
+          }
+
+          if (pageData.length < 100) {
+            keepFetchingConfigs = false
+          } else {
+            currentConfigPage++
+            if (currentConfigPage > 20) keepFetchingConfigs = false
+          }
+        }
+
+        const availablePlacesForDate = allPlacesData
+          .map((place: Place) => {
+            const config = configsData.find((c: any) => c.place_id === place.id)
+
+            if (!config || !config.allow_bookings) return null
+
+            const dayKey = `available_${dayOfWeek}` as keyof PlaceConfiguration
+            if (!config[dayKey]) return null
+
+            return {
+              ...place,
+              configuration: config,
+              isAvailableForDate: true,
+              operatingHours: `${config.start_time.substring(0, 5)} - ${config.end_time.substring(0, 5)}`
+            }
+          })
+          .filter((place: AvailablePlace | null): place is AvailablePlace => place !== null)
+
+        setAvailablePlaces(availablePlacesForDate)
+
+      } catch (error: any) {
+        console.error('Failed to fetch available places:', error)
+        toast.error(error.message || 'Failed to load available places', {
+          position: 'top-center',
+          duration: 4000
+        })
+      } finally {
+        setIsLoadingPlaces(false)
+      }
+    }
+
+    if (formData.date) {
+      fetchAvailablePlaces(formData.date)
+    }
+  }, [formData.date])
+
+  // Generate time gaps when place is selected
+  useEffect(() => {
+    const generateTimeGaps = () => {
+      if (!formData.place || !formData.date) {
+        setAvailableTimeGaps([])
+        return
+      }
+
+      const selectedPlace = availablePlaces.find(p => p.id === formData.place)
+
+      if (!selectedPlace || !selectedPlace.configuration) {
+        setAvailableTimeGaps([])
+        return
+      }
+
+      const config = selectedPlace.configuration
+      const minDuration = config.booking_slot_duration || 30
+      setMinBookingDuration(minDuration)
+
+      const openTime = config.start_time.substring(0, 5)
+      const closeTime = config.end_time.substring(0, 5)
+
+      const timeToMinutes = (time: string) => {
+        const [hours, minutes] = time.split(':').map(Number)
+        return hours * 60 + minutes
+      }
+
+      const minutesToTime = (minutes: number) => {
+        const hours = Math.floor(minutes / 60)
+        const mins = minutes % 60
+        return `${hours.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}`
+      }
+
+      const formatDuration = (minutes: number) => {
+        const hours = Math.floor(minutes / 60)
+        const mins = minutes % 60
+        if (hours > 0 && mins > 0) return `${hours}h ${mins}min`
+        else if (hours > 0) return `${hours}h`
+        else return `${mins}min`
+      }
+
+      const openMinutes = timeToMinutes(openTime)
+      const closeMinutes = timeToMinutes(closeTime)
+
+      // Always use the full available time range from opening time (no filtering by current time)
+      const effectiveStartMinutes = openMinutes
+
+      // Get existing bookings for this date and place
+      // Filter bookings: same date, same place
+      // NOTE: Cancelled bookings are already excluded in the fetchBookings function above
+      // They are treated as free time slots and don't block new bookings
+      // Normalize formData.date to ensure proper comparison (handle any format issues)
+      const normalizedSelectedDate = formData.date.trim()
+
+      const relevantBookings = existingBookings.filter(booking => {
+        // Normalize booking date for comparison
+        let bookingDate = booking.date
+        if (bookingDate && typeof bookingDate === 'string') {
+          // Extract date part if it's a datetime string
+          if (bookingDate.includes('T') || bookingDate.includes(' ')) {
+            bookingDate = bookingDate.split('T')[0].split(' ')[0]
+          }
+          bookingDate = bookingDate.trim()
+        }
+
+        const placeMatches = booking.placeId ? booking.placeId === formData.place : booking.place === selectedPlace.name
+        const dateMatches = bookingDate === normalizedSelectedDate
+
+        return dateMatches && placeMatches && booking.startTime && booking.endTime
+      }).map(booking => ({
+        start: timeToMinutes(booking.startTime),
+        end: timeToMinutes(booking.endTime),
+        title: booking.title
+      })).sort((a, b) => a.start - b.start)
+
+      console.log(`✅ Found ${relevantBookings.length} active bookings for ${formData.date} at ${selectedPlace.name} (cancelled bookings excluded)`)
+
+      console.log('✅ Relevant bookings for gap calculation:', relevantBookings)
+
+      // Find gaps
+      const gaps: { start: string, end: string, duration: string }[] = []
+      let currentTime = effectiveStartMinutes
+
+      for (const booking of relevantBookings) {
+        if (currentTime < booking.start) {
+          const gapDuration = booking.start - currentTime
+          if (gapDuration >= minDuration) {
+            gaps.push({
+              start: minutesToTime(currentTime),
+              end: minutesToTime(booking.start),
+              duration: formatDuration(gapDuration)
+            })
+          }
+        }
+        currentTime = Math.max(currentTime, booking.end)
+      }
+
+      // Check final gap
+      if (currentTime < closeMinutes) {
+        const gapDuration = closeMinutes - currentTime
+        if (gapDuration >= minDuration) {
+          gaps.push({
+            start: minutesToTime(currentTime),
+            end: minutesToTime(closeMinutes),
+            duration: formatDuration(gapDuration)
+          })
+        }
+      }
+
+      console.log('✅ Available gaps:', gaps)
+      setAvailableTimeGaps(gaps)
+    }
+
+    generateTimeGaps()
+  }, [formData.place, formData.date, availablePlaces, existingBookings])
+
+  // Generate start times within selected gap
+  useEffect(() => {
+    if (!selectedTimeGap || !formData.place) {
+      setAvailableStartTimes([])
+      setAvailableEndTimes([])
+      return
+    }
+
+    const gap = availableTimeGaps.find(g => `${g.start} - ${g.end}` === selectedTimeGap)
+    if (!gap) return
+
+    const selectedPlace = availablePlaces.find(p => p.id === formData.place)
+    if (!selectedPlace?.configuration) return
+
+    const config = selectedPlace.configuration
+    const slotInterval = 30 // 30-minute intervals for start times
+    const minDuration = config.booking_slot_duration || 60 // Minimum booking duration (e.g., 1 hour)
+    setMinBookingDuration(minDuration)
+
+    const timeToMinutes = (time: string) => {
+      const [hours, minutes] = time.split(':').map(Number)
+      return hours * 60 + minutes
+    }
+
+    const minutesToTime = (minutes: number) => {
+      const hours = Math.floor(minutes / 60)
+      const mins = minutes % 60
+      return `${hours.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}`
+    }
+
+    const gapStartMinutes = timeToMinutes(gap.start)
+    const gapEndMinutes = timeToMinutes(gap.end)
+
+    // Generate start times within gap
+    // Last possible start time must allow for minimum duration
+    const lastPossibleStart = gapEndMinutes - minDuration
+
+    const startTimes: string[] = []
+    for (let time = gapStartMinutes; time <= lastPossibleStart; time += slotInterval) {
+      startTimes.push(minutesToTime(time))
+    }
+
+    console.log(`⏰ Gap: ${gap.start} - ${gap.end} (${gapEndMinutes - gapStartMinutes} min)`)
+    console.log(`⏱️ Min duration: ${minDuration} min, Interval: ${slotInterval} min`)
+    console.log(`⏰ Last possible start: ${minutesToTime(lastPossibleStart)} (allows ${minDuration}min until ${gap.end})`)
+    console.log(`✅ Available start times:`, startTimes)
+
+    setAvailableStartTimes(startTimes)
+    setSelectedGapStart(gap.start)
+    setSelectedGapEnd(gap.end)
+
+  }, [selectedTimeGap, availablePlaces, formData.place, availableTimeGaps])
+
+  // Generate end times based on selected start time within gap
+  useEffect(() => {
+    if (!formData.startTime || !selectedGapEnd) {
+      setAvailableEndTimes([])
+      return
+    }
+
+    const selectedPlace = availablePlaces.find(p => p.id === formData.place)
+    if (!selectedPlace?.configuration) return
+
+    const config = selectedPlace.configuration
+    const slotInterval = 30 // 30-minute intervals
+    const minDuration = config.booking_slot_duration || 60
+
+    const timeToMinutes = (time: string) => {
+      const [hours, minutes] = time.split(':').map(Number)
+      return hours * 60 + minutes
+    }
+
+    const minutesToTime = (minutes: number) => {
+      const hours = Math.floor(minutes / 60)
+      const mins = minutes % 60
+      return `${hours.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}`
+    }
+
+    const startMinutes = timeToMinutes(formData.startTime)
+    const gapEndMinutes = timeToMinutes(selectedGapEnd)
+    const minEndMinutes = startMinutes + minDuration
+
+    const endTimes: string[] = []
+    for (let time = minEndMinutes; time <= gapEndMinutes; time += slotInterval) {
+      endTimes.push(minutesToTime(time))
+    }
+
+    console.log(`⏰ Start time: ${formData.startTime}, Gap ends: ${selectedGapEnd}`)
+    console.log(`⏱️ Min end: ${minutesToTime(minEndMinutes)} (${minDuration}min from start)`)
+    console.log(`✅ Available end times:`, endTimes)
+
+    setAvailableEndTimes(endTimes)
+
+  }, [formData.startTime, selectedGapEnd, availablePlaces, formData.place])
+
+  // Generate refreshment serving time options based on booking time
+  useEffect(() => {
+    if (!formData.startTime || !formData.endTime) {
+      setServingTimeOptions([])
+      return
+    }
+
+    const timeToMinutes = (time: string) => {
+      const [hours, minutes] = time.split(':').map(Number)
+      return hours * 60 + minutes
+    }
+
+    const minutesToTime = (minutes: number) => {
+      const hours = Math.floor(minutes / 60)
+      const mins = minutes % 60
+      return `${hours.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}`
+    }
+
+    const startMinutes = timeToMinutes(formData.startTime)
+    const endMinutes = timeToMinutes(formData.endTime)
+    const interval = 15 // 15-minute intervals
+
+    // Generate serving times from booking start to 15 minutes before booking end
+    const servingTimes: string[] = []
+    const lastServingTime = endMinutes - 15 // Last option is 15 min before end
+
+    for (let time = startMinutes; time <= lastServingTime; time += interval) {
+      servingTimes.push(minutesToTime(time))
+    }
+
+    console.log(`🍽️ Serving time options: ${formData.startTime} to ${minutesToTime(lastServingTime)} (15-min intervals)`)
+    console.log(`✅ Total options:`, servingTimes.length)
+
+    setServingTimeOptions(servingTimes)
+
+  }, [formData.startTime, formData.endTime])
+
+  // Update selected email participants when participants change
+  useEffect(() => {
+    const allParticipants = getAllParticipants()
+    const allEmails = allParticipants.map(p => p.email)
+
+    // Remove emails that are no longer in the participant list
+    setSelectedEmailParticipants(prev =>
+      prev.filter(email => allEmails.includes(email))
+    )
+  }, [formData.responsiblePerson, formData.selectedEmployees, formData.externalParticipants])
+
+  // Helper function to get all participants (responsible, internal, external)
+  const getAllParticipants = () => {
+    const participants: Array<{ name: string, email: string, type: 'responsible' | 'internal' | 'external' }> = []
+
+    // Add responsible person
+    if (formData.responsiblePerson) {
+      participants.push({
+        name: formData.responsiblePerson.name,
+        email: formData.responsiblePerson.email,
+        type: 'responsible'
+      })
+    }
+
+    // Add internal participants
+    formData.selectedEmployees.forEach(employee => {
+      participants.push({
+        name: employee.name,
+        email: employee.email,
+        type: 'internal'
+      })
+    })
+
+    // Add external participants (only if they have an email)
+    formData.externalParticipants.forEach(participant => {
+      if (participant.email && participant.email.trim() !== '') {
+        participants.push({
+          name: participant.fullName,
+          email: participant.email.trim(),
+          type: 'external'
+        })
+      }
+    })
+
+    return participants
+  }
+
+  // Handle individual participant email selection
+  const handleParticipantEmailSelection = (email: string, checked: boolean) => {
+    if (checked) {
+      setSelectedEmailParticipants(prev => [...prev, email])
+    } else {
+      setSelectedEmailParticipants(prev => prev.filter(e => e !== email))
+    }
+  }
+
+  // Handle select all participants
+  const handleSelectAllParticipants = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.checked) {
+      // Only include participants with valid emails
+      const allEmails = getAllParticipants()
+        .filter(p => p.email && p.email.trim() !== '')
+        .map(p => p.email.trim())
+      setSelectedEmailParticipants(allEmails)
+    } else {
+      setSelectedEmailParticipants([])
+    }
+  }
+
+  // Send email notifications to selected participants
+  const sendEmailNotifications = async (bookingData: any, bookingRefId: string) => {
+    if (selectedEmailParticipants.length === 0) {
+      console.log('📧 No participants selected for email notifications')
+      return
+    }
+
+    try {
+      console.log('📧 Sending email notifications to:', selectedEmailParticipants)
+
+      // Get authentication token
+      const token = localStorage.getItem('authToken') || localStorage.getItem('jwt_token') || localStorage.getItem('token')
+
+      if (!token) {
+        console.error('❌ No authentication token found')
+        toast.error('Authentication required. Please log in again.', {
+          position: 'top-center',
+          duration: 4000,
+          icon: '❌'
+        })
+        return
+      }
+
+      // Format time for email (remove seconds if present)
+      const formatTime = (time: string) => {
+        return time.substring(0, 5) // Remove seconds if present
+      }
+
+      // Filter out any empty or invalid emails
+      const validEmails = selectedEmailParticipants.filter(email => email && email.trim() !== '').map(email => email.trim())
+
+      if (validEmails.length === 0) {
+        console.log('📧 No valid email addresses to send notifications to')
+        toast.warning('No valid email addresses selected', {
+          position: 'top-center',
+          duration: 3000
+        })
+        return
+      }
+
+      // Get required headers from environment (same as OTP email sending)
+      const appId = process.env.NEXT_PUBLIC_APP_ID || 're_J561ebQe_8pHNiwDmVVxV46rs3V8FMRUQ'
+      const serviceKey = process.env.NEXT_PUBLIC_SERVICE_KEY || 're_J561ebQe_8pHNiwDmVVxV46rs3V8FMRUQ12345'
+
+      // Prepare email data for the new simplified API
+      const emailData = {
+        meetingName: bookingData.title,
+        date: bookingData.booking_date,
+        startTime: formatTime(bookingData.start_time),
+        endTime: formatTime(bookingData.end_time),
+        place: bookingData.place_name || '',
+        description: bookingData.description || '',
+        participantEmails: validEmails,
+        emailType: 'booking_details' as const,
+        includeCalendar: true, // Enable calendar recording (Google/Outlook)
+        calendarFormat: 'ics',  // Default format
+        bookingRefId: bookingRefId || '' // Include booking reference ID (ensure it's always a string)
+      }
+
+      console.log('📧 Email data prepared:', emailData)
+      console.log('📧 Booking Reference ID:', bookingRefId)
+      console.log('📧 Valid participant emails:', validEmails)
+
+      // Call the simplified email API endpoint
+      const response = await fetch('/api/booking-email/send-from-frontend', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+          'X-App-Id': appId,
+          'X-Service-Key': serviceKey
+        },
+        body: JSON.stringify(emailData)
+      })
+
+      const result = await response.json()
+
+      console.log('📧 Email API response status:', response.status)
+      console.log('📧 Email API response:', result)
+
+      if (!response.ok) {
+        throw new Error(result.message || result.error || 'Failed to send emails')
+      }
+
+      if (result.success) {
+        const successful = result.data?.successful || result.data?.emailsSent || selectedEmailParticipants.length
+        const failed = result.data?.failed || 0
+
+        if (failed > 0) {
+          toast.success(`Emails sent to ${successful} participants (${failed} failed)`, {
+            position: 'top-center',
+            duration: 4000,
+            icon: '📧'
+          })
+        } else {
+          toast.success(`Email notifications sent to ${successful} participants`, {
+            position: 'top-center',
+            duration: 3000,
+            icon: '📧'
+          })
+        }
+      } else {
+        throw new Error(result.message || 'Failed to send emails')
+      }
+
+    } catch (error: any) {
+      console.error('❌ Failed to send email notifications:', error)
+      toast.error(`Failed to send email notifications: ${error.message}`, {
+        position: 'top-center',
+        duration: 4000,
+        icon: '❌'
+      })
+    }
+  }
+
+  // Handle form submission
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+
+    // Show confirmation dialog
+    setIsCreateConfirmDialogOpen(true)
+  }
+
+  const handleCreateBooking = async () => {
+    // ✅ COMPREHENSIVE VALIDATION
+    console.log('🔍 Starting validation...')
+
+    // Validate booking data
+    const bookingValidation = validateBookingData(formData)
+    if (!bookingValidation.isValid) {
+      toast.error(bookingValidation.errors[0], {
+        position: 'top-center',
+        duration: 4000,
+        icon: '❌'
+      })
+      console.error('Validation errors:', bookingValidation.errors)
+      return
+    }
+
+    // Validate external participants
+    for (const participant of formData.externalParticipants) {
+      const participantValidation = validateExternalParticipant(participant)
+      if (!participantValidation.isValid) {
+        toast.error(`External Participant: ${participantValidation.errors[0]}`, {
+          position: 'top-center',
+          duration: 4000,
+          icon: '❌'
+        })
+        console.error('Participant validation errors:', participantValidation.errors)
+        return
+      }
+    }
+
+    if (!formData.startTime || !formData.endTime) {
+      toast.error('Please select a time slot', {
+        position: 'top-center',
+        duration: 3000
+      })
+      return
+    }
+
+    try {
+      setIsSubmitting(true)
+      console.log('✅ Validation passed, creating booking...')
+
+      const generateUUID = () => {
+        return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
+          const r = Math.random() * 16 | 0
+          const v = c === 'x' ? r : (r & 0x3 | 0x8)
+          return v.toString(16)
+        })
+      }
+
+      const generateBookingRefId = () => {
+        // Generate 6-character uppercase alphanumeric code
+        const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
+        let refId = ''
+        for (let i = 0; i < 6; i++) {
+          refId += chars.charAt(Math.floor(Math.random() * chars.length))
+        }
+        return refId
+      }
+
+      const selectedPlace = availablePlaces.find(p => p.id === formData.place)
+      const bookingId = generateUUID()
+      const bookingRefId = generateBookingRefId()
+
+      console.log('🔖 Generated Booking Reference ID:', bookingRefId)
+
+      // Get current time in Sri Lanka timezone (UTC+5:30)
+      // Returns UTC time that represents the current Sri Lanka local time
+      const getSriLankaTimestamp = (): string => {
+        const now = new Date()
+        // Get Sri Lanka time components
+        const sriLankaTime = new Intl.DateTimeFormat('en-CA', {
+          timeZone: 'Asia/Colombo',
+          year: 'numeric',
+          month: '2-digit',
+          day: '2-digit',
+          hour: '2-digit',
+          minute: '2-digit',
+          second: '2-digit',
+          hour12: false
+        }).formatToParts(now)
+
+        const year = parseInt(sriLankaTime.find(p => p.type === 'year')?.value || '0')
+        const month = parseInt(sriLankaTime.find(p => p.type === 'month')?.value || '0')
+        const day = parseInt(sriLankaTime.find(p => p.type === 'day')?.value || '0')
+        const hour = parseInt(sriLankaTime.find(p => p.type === 'hour')?.value || '0')
+        const minute = parseInt(sriLankaTime.find(p => p.type === 'minute')?.value || '0')
+        const second = parseInt(sriLankaTime.find(p => p.type === 'second')?.value || '0')
+
+        // Create a Date object representing Sri Lanka local time
+        const sriLankaDate = new Date(year, month - 1, day, hour, minute, second)
+
+        // Calculate UTC time that represents this Sri Lanka local time
+        // Sri Lanka is UTC+5:30, so subtract 5 hours 30 minutes to get UTC
+        const offsetMs = (5 * 60 + 30) * 60 * 1000 // 5:30 in milliseconds
+        const utcDate = new Date(sriLankaDate.getTime() - offsetMs)
+
+        // Format as MySQL DATETIME: YYYY-MM-DD HH:MM:SS (UTC)
+        const utcYear = utcDate.getUTCFullYear()
+        const utcMonth = String(utcDate.getUTCMonth() + 1).padStart(2, '0')
+        const utcDay = String(utcDate.getUTCDate()).padStart(2, '0')
+        const utcHour = String(utcDate.getUTCHours()).padStart(2, '0')
+        const utcMinute = String(utcDate.getUTCMinutes()).padStart(2, '0')
+        const utcSecond = String(utcDate.getUTCSeconds()).padStart(2, '0')
+
+        return `${utcYear}-${utcMonth}-${utcDay} ${utcHour}:${utcMinute}:${utcSecond}`
+      }
+
+      const currentTimestamp = getSriLankaTimestamp()
+
+      // ✅ Sanitize all data before sending to API
+      const sanitizedBookingData = sanitizeObject({
+        id: bookingId,
+        booking_ref_id: bookingRefId,
+        title: sanitizeInput(formData.title),
+        description: sanitizeInput(formData.description) || null,
+        booking_date: formData.date,
+        start_time: formData.startTime + ':00',
+        end_time: formData.endTime + ':00',
+        place_id: formData.place,
+        place_name: sanitizeInput(selectedPlace?.name || ''),
+        status: 'pending',
+        responsible_person_id: formData.responsiblePerson?.id || null,
+        responsible_person_name: sanitizeInput(formData.responsiblePerson?.name || '') || null,
+        responsible_person_email: formData.responsiblePerson?.email || null,
+        total_participants: formData.selectedEmployees.length + formData.externalParticipants.length,
+        internal_participants: formData.selectedEmployees.length,
+        external_participants: formData.externalParticipants.length,
+        refreshments_required: formData.refreshments.required ? 1 : 0,
+        refreshments_details: JSON.stringify(sanitizeObject(formData.refreshments)),
+        is_deleted: 0,
+        created_at: currentTimestamp,
+        updated_at: currentTimestamp
+      })
+
+      console.log('✅ Data sanitized, sending to API...')
+      await placeManagementAPI.insertRecord('bookings', sanitizedBookingData)
+
+      // Insert participants with sanitization
+      for (const employee of formData.selectedEmployees) {
+        await placeManagementAPI.insertRecord('booking_participants', sanitizeObject({
+          id: generateUUID(),
+          booking_id: bookingId,
+          employee_id: employee.id,
+          employee_name: sanitizeInput(employee.name),
+          employee_email: employee.email,
+          employee_department: sanitizeInput(employee.department),
+          employee_role: employee.role,
+          employee_phone: employee.phone,
+          participation_status: 'invited'
+        }))
+      }
+
+      // Insert external participants with member linking
+      // Ensure all operations complete before proceeding
+      let hasExternalParticipants = false
+      for (const participant of formData.externalParticipants) {
+        let memberId = participant.id
+
+        // Check if member exists in database
+        try {
+          let existingMember = null
+
+          if (participant.email) {
+            const emailResponse = await placeManagementAPI.getTableData('external_members', {
+              filters: [
+                { column: 'email', operator: 'equals', value: participant.email.toLowerCase().trim() },
+                { column: 'is_deleted', operator: 'equals', value: 0 }
+              ],
+              limit: 1
+            })
+            const emailData = Array.isArray(emailResponse) ? emailResponse : emailResponse.data || []
+            if (emailData.length > 0) {
+              existingMember = emailData[0]
+            }
+          }
+
+          if (!existingMember && participant.phone) {
+            const phoneResponse = await placeManagementAPI.getTableData('external_members', {
+              filters: [
+                { column: 'phone', operator: 'equals', value: participant.phone.trim() },
+                { column: 'is_deleted', operator: 'equals', value: 0 }
+              ],
+              limit: 1
+            })
+            const phoneData = Array.isArray(phoneResponse) ? phoneResponse : phoneResponse.data || []
+            if (phoneData.length > 0) {
+              existingMember = phoneData[0]
+            }
+          }
+
+          if (existingMember) {
+            // Use existing member ID and increment visit count
+            memberId = existingMember.id
+            console.log('✅ Using existing member:', existingMember.full_name, 'ID:', memberId)
+            await placeManagementAPI.updateRecord('external_members', { id: memberId }, {
+              visit_count: (existingMember.visit_count || 0) + 1,
+              last_visit_date: getSriLankaTimestamp()
+            })
+            console.log('✅ Updated visit count for existing member')
+          } else {
+            // Create new member record in external_members table FIRST
+            // This ensures the member exists before linking to booking
+            memberId = generateUUID()
+            console.log('➕ Creating new member in external_members table:', participant.fullName, 'ID:', memberId)
+
+            const memberData = sanitizeObject({
+              id: memberId,
+              full_name: sanitizeInput(participant.fullName),
+              email: (participant.email || '').toLowerCase().trim(),
+              phone: participant.phone.trim(),
+              reference_type: participant.referenceType,
+              reference_value: sanitizeInput(participant.referenceValue),
+              visit_count: 1,
+              last_visit_date: getSriLankaTimestamp(),
+              is_active: true,
+              is_deleted: false,
+              is_blacklisted: false,
+              created_at: getSriLankaTimestamp()
+            })
+
+            // Wait for member creation to complete
+            await placeManagementAPI.insertRecord('external_members', memberData)
+            console.log('✅ Successfully created new member in external_members table')
+
+            // Verify member was created (optional check)
+            const verifyResponse = await placeManagementAPI.getTableData('external_members', {
+              id: memberId
+            })
+            const verifyData = Array.isArray(verifyResponse) ? verifyResponse : []
+            if (verifyData.length === 0) {
+              throw new Error(`Failed to verify member creation for ${participant.fullName}`)
+            }
+            console.log('✅ Verified member exists in external_members table')
+          }
+        } catch (error) {
+          console.error('❌ Member check/create failed:', error)
+          toast.error(`Failed to process external member ${participant.fullName}: ${error}`, {
+            position: 'top-center',
+            duration: 4000
+          })
+          throw error // Stop booking creation if member creation fails
+        }
+
+        // Wait for member to be created, then insert external participant record
+        // This ensures both records are created: external_members AND external_participants
+        const participantId = generateUUID()
+        console.log('➕ Creating external_participant record for member:', memberId, 'Participant ID:', participantId)
+
+        const participantData = sanitizeObject({
+          id: participantId,
+          booking_id: bookingId,
+          member_id: memberId,
+          full_name: sanitizeInput(participant.fullName),
+          email: participant.email,
+          phone: participant.phone,
+          reference_type: participant.referenceType,
+          reference_value: sanitizeInput(participant.referenceValue),
+          participation_status: 'invited'
+        })
+
+        // Wait for participant creation to complete in external_participants table
+        await placeManagementAPI.insertRecord('external_participants', participantData)
+        console.log('✅ Successfully created external_participant record in external_participants table')
+
+        hasExternalParticipants = true
+      }
+
+      // Update booking with has_external_participants flag
+      if (hasExternalParticipants) {
+        await placeManagementAPI.updateRecord('bookings', { id: bookingId }, {
+          has_external_participants: true
+        })
+      }
+
+      // Insert refreshments with sanitization
+      if (formData.refreshments.required) {
+        await placeManagementAPI.insertRecord('booking_refreshments', sanitizeObject({
+          id: generateUUID(),
+          booking_id: bookingId,
+          refreshment_type: formData.refreshments.type || 'beverages',
+          items: JSON.stringify(formData.refreshments.items.map(item => sanitizeInput(item))),
+          serving_time: formData.refreshments.servingTime ? formData.refreshments.servingTime + ':00' : null,
+          estimated_count: formData.refreshments.estimatedCount,
+          special_requests: sanitizeInput(formData.refreshments.specialRequests) || null,
+          status: 'pending'
+        }))
+      }
+
+      // All database operations completed - booking, participants, and external members are all saved
+      console.log('✅ All database operations completed successfully')
+      console.log('✅ Booking ID:', bookingId)
+      console.log('✅ External members created:', formData.externalParticipants.length)
+
+      toast.success('Booking created successfully!', {
+        position: 'top-center',
+        duration: 3000,
+        icon: '✅'
+      })
+
+      // Auto-select all participants with valid emails for notifications
+      const allParticipantsWithEmails = getAllParticipants()
+        .filter(p => p.email && p.email.trim() !== '')
+        .map(p => p.email.trim())
+      setSelectedEmailParticipants(allParticipantsWithEmails)
+
+      // Send email notifications to all participants (including external members)
+      await sendEmailNotifications(sanitizedBookingData, bookingRefId)
+
+      // Redirect to bookings list
+      router.push('/staff/bookings')
+
+    } catch (error: any) {
+      console.error('Failed to create booking:', error)
+      toast.error(error.message || 'Failed to create booking', {
+        position: 'top-center',
+        duration: 4000,
+        icon: '❌'
+      })
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
+  // Employee search and selection
+  const selectEmployee = (user: UserProfile) => {
+    const employee: Employee = {
+      id: user.id,
+      name: user.full_name,
+      email: user.email,
+      department: '',
+      role: user.role,
+      phone: ''
+    }
+    setFormData({
+      ...formData,
+      selectedEmployees: [...formData.selectedEmployees, employee]
+    })
+    setEmployeeSearch("")
+  }
+
+  const removeEmployee = (employeeId: string) => {
+    setFormData({
+      ...formData,
+      selectedEmployees: formData.selectedEmployees.filter(e => e.id !== employeeId)
+    })
+  }
+
+  // External member search
+  const searchExternalMembers = async (searchTerm: string) => {
+    if (!searchTerm || searchTerm.length < 2) {
+      setSearchedMembers([])
+      return
+    }
+
+    try {
+      const response = await placeManagementAPI.getTableData('external_members', {
+        is_deleted: 'false',
+        is_blacklisted: 'false',
+        is_active: 'true'
+      })
+
+      const data = Array.isArray(response) ? response : response.data || []
+
+      // Filter by email, phone, or name
+      const filtered = data.filter((member: any) =>
+        member.email?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        member.phone?.includes(searchTerm) ||
+        member.full_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        member.company_name?.toLowerCase().includes(searchTerm.toLowerCase())
+      ).slice(0, 10) // Limit to 10 results
+
+      setSearchedMembers(filtered)
+    } catch (error) {
+      console.error('Failed to search members:', error)
+    }
+  }
+
+  // Select existing member
+  const selectExistingMember = (member: any) => {
+    // Check if already added
+    if (formData.externalParticipants.some(p => p.email === member.email)) {
+      toast.error('This member is already added')
+      return
+    }
+
+    const participant: ExternalParticipant = {
+      id: member.id,
+      fullName: member.full_name,
+      email: member.email,
+      phone: member.phone,
+      referenceType: member.reference_type as "NIC" | "Passport" | "Employee ID",
+      referenceValue: member.reference_value,
+    }
+
+    setFormData({
+      ...formData,
+      externalParticipants: [...formData.externalParticipants, participant],
+    })
+
+    setMemberSearch("")
+    setSearchedMembers([])
+    setShowMemberDropdown(false)
+    toast.success(`Added ${member.full_name}`)
+  }
+
+  // External participant management
+  const addExternalParticipant = async () => {
+    if (!newExternalParticipant.fullName || !newExternalParticipant.phone || !newExternalParticipant.referenceValue) {
+      toast.error("Please fill in all required fields", {
+        position: 'top-center',
+        duration: 3000
+      })
+      return
+    }
+
+    // Check for duplicates in current form
+    if (formData.externalParticipants.some(p =>
+      p.email === newExternalParticipant.email ||
+      p.phone === newExternalParticipant.phone
+    )) {
+      toast.error('Duplicate email or phone in participants')
+      return
+    }
+
+    // Check if exists in database
+    try {
+      let existing = null
+
+      if (newExternalParticipant.email) {
+        const emailResponse = await placeManagementAPI.getTableData('external_members', {
+          filters: [
+            { column: 'email', operator: 'equals', value: newExternalParticipant.email.toLowerCase().trim() },
+            { column: 'is_deleted', operator: 'equals', value: 0 }
+          ],
+          limit: 1
+        })
+        const emailData = Array.isArray(emailResponse) ? emailResponse : emailResponse.data || []
+        if (emailData.length > 0) {
+          existing = emailData[0]
+        }
+      }
+
+      if (!existing && newExternalParticipant.phone) {
+        const phoneResponse = await placeManagementAPI.getTableData('external_members', {
+          filters: [
+            { column: 'phone', operator: 'equals', value: newExternalParticipant.phone.trim() },
+            { column: 'is_deleted', operator: 'equals', value: 0 }
+          ],
+          limit: 1
+        })
+        const phoneData = Array.isArray(phoneResponse) ? phoneResponse : phoneResponse.data || []
+        if (phoneData.length > 0) {
+          existing = phoneData[0]
+        }
+      }
+
+      if (existing) {
+        if (existing.is_blacklisted) {
+          toast.error(`${existing.full_name} is blacklisted: ${existing.blacklist_reason || 'No reason provided'}`)
+          return
+        }
+        // Use existing member
+        toast.info(`Using existing member: ${existing.full_name}`)
+        selectExistingMember(existing)
+        return
+      }
+    } catch (error) {
+      console.error('Duplicate check failed:', error)
+    }
+
+    // Add as new
+    const participant: ExternalParticipant = {
+      id: Math.random().toString(36).substr(2, 9),
+      ...newExternalParticipant,
+    }
+
+    setFormData({
+      ...formData,
+      externalParticipants: [...formData.externalParticipants, participant],
+    })
+
+    setNewExternalParticipant({
+      fullName: "",
+      email: "",
+      phone: "",
+      referenceType: "NIC",
+      referenceValue: "",
+    })
+
+    toast.success('Added new external participant')
+  }
+
+  const removeExternalParticipant = (id: string) => {
+    setFormData({
+      ...formData,
+      externalParticipants: formData.externalParticipants.filter(p => p.id !== id)
+    })
+  }
+
+  // Edit external member
+  const handleEditExternalMember = async (participant: ExternalParticipant) => {
+    // Check if this is a database member (UUID format) or temporary ID
+    const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(participant.id)
+
+    if (isUUID) {
+      // Load full member data from database
+      try {
+        const response = await placeManagementAPI.getTableData('external_members', {
+          id: participant.id,
+          is_deleted: 'false'
+        })
+        const members = Array.isArray(response) ? response : response.data || []
+        const member = members[0]
+
+        if (member) {
+          setEditingMemberFormData({
+            full_name: member.full_name || participant.fullName,
+            email: member.email || participant.email,
+            phone: member.phone || participant.phone,
+            company_name: member.company_name || "",
+            designation: member.designation || "",
+            reference_type: member.reference_type || participant.referenceType,
+            reference_value: member.reference_value || participant.referenceValue,
+            address: member.address || "",
+            city: member.city || "",
+            country: member.country || "Sri Lanka",
+            notes: member.notes || ""
+          })
+          setEditingExternalMember(participant)
+          setIsEditMemberDialogOpen(true)
+        } else {
+          toast.error('Member not found in database')
+        }
+      } catch (error) {
+        console.error('Error loading member:', error)
+        toast.error('Failed to load member details')
+      }
+    } else {
+      // Temporary participant - edit inline
+      setEditingMemberFormData({
+        full_name: participant.fullName,
+        email: participant.email,
+        phone: participant.phone,
+        company_name: "",
+        designation: "",
+        reference_type: participant.referenceType,
+        reference_value: participant.referenceValue,
+        address: "",
+        city: "",
+        country: "Sri Lanka",
+        notes: ""
+      })
+      setEditingExternalMember(participant)
+      setIsEditMemberDialogOpen(true)
+    }
+  }
+
+  const handleUpdateExternalMember = async () => {
+    if (!editingExternalMember) return
+
+    // Validate
+    if (!editingMemberFormData.full_name?.trim() || !editingMemberFormData.phone?.trim() || !editingMemberFormData.reference_value?.trim()) {
+      toast.error('Please fill in all required fields', { position: 'top-center' })
+      return
+    }
+
+    setIsUpdatingMember(true)
+
+    try {
+      const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(editingExternalMember.id)
+
+      if (isUUID) {
+        // Update in database
+        await placeManagementAPI.updateRecord('external_members', { id: editingExternalMember.id }, {
+          full_name: editingMemberFormData.full_name.trim(),
+          email: editingMemberFormData.email?.trim() || null,
+          phone: editingMemberFormData.phone.trim(),
+          company_name: editingMemberFormData.company_name?.trim() || null,
+          designation: editingMemberFormData.designation?.trim() || null,
+          reference_type: editingMemberFormData.reference_type,
+          reference_value: editingMemberFormData.reference_value.trim(),
+          address: editingMemberFormData.address?.trim() || null,
+          city: editingMemberFormData.city?.trim() || null,
+          country: editingMemberFormData.country?.trim() || 'Sri Lanka',
+          notes: editingMemberFormData.notes?.trim() || null
+        })
+
+        toast.success('External member updated successfully!', { position: 'top-center' })
+      }
+
+      // Update participant in form
+      const updatedParticipants = formData.externalParticipants.map(p =>
+        p.id === editingExternalMember.id
+          ? {
+            ...p,
+            fullName: editingMemberFormData.full_name.trim(),
+            email: editingMemberFormData.email?.trim() || "",
+            phone: editingMemberFormData.phone.trim(),
+            referenceType: editingMemberFormData.reference_type as "NIC" | "Passport" | "Employee ID",
+            referenceValue: editingMemberFormData.reference_value.trim()
+          }
+          : p
+      )
+
+      setFormData({
+        ...formData,
+        externalParticipants: updatedParticipants
+      })
+
+      setIsEditMemberDialogOpen(false)
+      setEditingExternalMember(null)
+    } catch (error: any) {
+      console.error('Error updating member:', error)
+      toast.error(error.message || 'Failed to update member', { position: 'top-center' })
+    } finally {
+      setIsUpdatingMember(false)
+    }
+  }
+
+  // Refreshments management
+  const addRefreshmentItem = (item: string) => {
+    if (item && !formData.refreshments.items.includes(item)) {
+      setFormData({
+        ...formData,
+        refreshments: {
+          ...formData.refreshments,
+          items: [...formData.refreshments.items, item],
+        },
+      })
+      // Reset the select after adding
+      setSelectedRefreshmentItem("")
+    }
+  }
+
+  const removeRefreshmentItem = (item: string) => {
+    console.log('removeRefreshmentItem called with:', item)
+    console.log('Current items:', formData.refreshments.items)
+    setFormData((prev) => {
+      const filtered = prev.refreshments.items.filter((i) => i !== item)
+      console.log('Filtered items:', filtered)
+      return {
+        ...prev,
+        refreshments: {
+          ...prev.refreshments,
+          items: filtered,
+        },
+      }
+    })
+  }
+
+  return (
+    <RouteProtection>
+      <DashboardLayout>
+        <div className="container mx-auto py-6 px-4 max-w-[1600px] dark:bg-background">
+      {/* Header */}
+      <div className="mb-8 p-6 bg-gradient-to-r from-blue-500/10 via-purple-500/5 to-transparent rounded-2xl border border-blue-500/10 dark:border-blue-500/20 backdrop-blur-sm">
+        <div className="flex items-center gap-4">
+          <div className="p-3 bg-gradient-to-br from-blue-500 to-purple-600 rounded-xl text-white border border-blue-400/20 shadow-none">
+            <Calendar className="h-6 w-6" />
+          </div>
+          <div>
+            <h1 className="text-3xl font-extrabold tracking-tight bg-gradient-to-r from-blue-600 to-purple-600 dark:from-blue-400 dark:to-purple-400 bg-clip-text text-transparent">
+              New Booking Form
+            </h1>
+            <p className="text-sm text-muted-foreground mt-1 font-medium">
+              Schedule meetings, invite external participants, and request refreshments for your session
+            </p>
+          </div>
+        </div>
+      </div>
+
+      {/* Form */}
+      <form onSubmit={handleSubmit} className="space-y-6">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          {/* Left Column - Basic Info */}
+          <Card className="lg:col-span-2 bg-white/60 dark:bg-slate-900/10 border border-slate-200 dark:border-slate-800/60 rounded-2xl hover:border-blue-500/20 dark:hover:border-blue-500/30 transition-all duration-300 shadow-none">
+            <CardHeader className="border-b border-slate-100 dark:border-slate-800/50 pb-4">
+              <CardTitle className="flex items-center gap-2 dark:text-foreground">
+                <Calendar className="h-5 w-5" />
+                Booking Details
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4 pt-6 bg-transparent">
+              <div className="grid grid-cols-2 gap-4">
+                <div className="col-span-2 space-y-2">
+                  <Label htmlFor="title" className="dark:text-foreground">Booking Title *</Label>
+                  <Input
+                    id="title"
+                    value={formData.title}
+                    onChange={(e) => setFormData({ ...formData, title: e.target.value })}
+                    placeholder="e.g., Weekly Team Meeting"
+                    required
+                    className="bg-slate-50/30 dark:bg-slate-950/10 border-slate-200 dark:border-slate-800/60 focus:border-blue-500 dark:focus:border-blue-400 focus:ring-0 rounded-xl transition-all"
+                  />
+                </div>
+
+                <div className="col-span-2 space-y-2">
+                  <Label htmlFor="description" className="dark:text-foreground">Description</Label>
+                  <Textarea
+                    id="description"
+                    value={formData.description}
+                    onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                    placeholder="Enter booking description..."
+                    rows={3}
+                    className="bg-slate-50/30 dark:bg-slate-950/10 border-slate-200 dark:border-slate-800/60 focus:border-blue-500 dark:focus:border-blue-400 focus:ring-0 rounded-xl transition-all"
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="date" className="dark:text-foreground">Date *</Label>
+                  <Input
+                    id="date"
+                    type="date"
+                    value={formData.date}
+                    min={new Date().toISOString().split('T')[0]}
+                    onChange={(e) => setFormData({ ...formData, date: e.target.value, place: '', startTime: '', endTime: '' })}
+                    required
+                    className="bg-slate-50/30 dark:bg-slate-950/10 border-slate-200 dark:border-slate-800/60 focus:border-blue-500 dark:focus:border-blue-400 focus:ring-0 rounded-xl transition-all"
+                  />
+                  <p className="text-xs text-muted-foreground dark:text-muted-foreground">
+                    You can only book for today or future dates. For today, only future times are available.
+                  </p>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="place" className="dark:text-foreground">Place *</Label>
+                  <Select
+                    value={formData.place}
+                    onValueChange={(value) => setFormData({ ...formData, place: value, startTime: '', endTime: '' })}
+                    disabled={!formData.date || isLoadingPlaces}
+                  >
+                    <SelectTrigger className="bg-slate-50/30 dark:bg-slate-950/10 border-slate-200 dark:border-slate-800/60 focus:border-blue-500 dark:focus:border-blue-400 focus:ring-0 rounded-xl transition-all">
+                      <SelectValue placeholder={
+                        !formData.date ? "Select date first" :
+                          isLoadingPlaces ? "Loading places..." :
+                            availablePlaces.length === 0 ? "No places available" :
+                              "Select a place"
+                      } />
+                    </SelectTrigger>
+                    <SelectContent className="dark:bg-card dark:border-border">
+                      {availablePlaces.map((place) => (
+                        <SelectItem key={place.id} value={place.id} className="dark:text-foreground dark:hover:bg-muted">
+                          <div className="flex flex-col">
+                            <span className="font-medium dark:text-foreground">{place.name}</span>
+                            <span className="text-xs text-muted-foreground dark:text-muted-foreground">
+                              {place.operatingHours} • Capacity: {place.capacity}
+                            </span>
+                          </div>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {availablePlaces.length > 0 && formData.date && (
+                    <p className="text-xs text-green-600 dark:text-green-400">
+                      ✅ {availablePlaces.length} place(s) available for {getDayOfWeek(formData.date)}
+                    </p>
+                  )}
+                </div>
+
+                <div className="col-span-2 space-y-2">
+                  <Label htmlFor="timeSlot" className="dark:text-foreground">Available Time Slots *</Label>
+                  <Select
+                    value={selectedTimeGap}
+                    onValueChange={(value) => {
+                      setSelectedTimeGap(value)
+                      // Reset start/end times when selecting a new gap
+                      setFormData({
+                        ...formData,
+                        startTime: '',
+                        endTime: ''
+                      })
+                    }}
+                    disabled={!formData.date || !formData.place}
+                  >
+                    <SelectTrigger className="h-auto py-3 bg-slate-50/30 dark:bg-slate-950/10 border-slate-200 dark:border-slate-800/60 focus:border-blue-500 dark:focus:border-blue-400 focus:ring-0 rounded-xl transition-all">
+                      <SelectValue placeholder={
+                        !formData.date ? "Select date first" :
+                          !formData.place ? "Select place first" :
+                            availableTimeGaps.length === 0 ? "No available time slots" :
+                              "Select an available time slot"
+                      } />
+                    </SelectTrigger>
+                    <SelectContent className="max-h-[400px] w-full min-w-[600px] dark:bg-card dark:border-border">
+                      {availableTimeGaps.length === 0 ? (
+                        <div className="p-4 text-center text-sm text-muted-foreground dark:text-muted-foreground">
+                          {!formData.date || !formData.place ?
+                            "Select date and place first" :
+                            "No available time slots for this date and place"
+                          }
+                        </div>
+                      ) : (
+                        availableTimeGaps.map((gap) => (
+                          <SelectItem
+                            key={`${gap.start}-${gap.end}`}
+                            value={`${gap.start} - ${gap.end}`}
+                            className="py-4 cursor-pointer dark:text-foreground dark:hover:bg-muted"
+                          >
+                            <div className="flex items-center justify-between w-full gap-12 pr-8">
+                              <span className="font-bold text-lg dark:text-foreground">{gap.start} - {gap.end}</span>
+                              <Badge variant="outline" className="bg-green-50 text-green-700 border-green-300 dark:bg-green-950/30 dark:text-green-400 dark:border-green-700">
+                                Duration: {gap.duration}
+                              </Badge>
+                            </div>
+                          </SelectItem>
+                        ))
+                      )}
+                    </SelectContent>
+                  </Select>
+                  {availableTimeGaps.length > 0 && (
+                    <p className="text-xs text-green-600 dark:text-green-400">
+                      ✅ {availableTimeGaps.length} time slot(s) available (min. {minBookingDuration >= 60 ? `${minBookingDuration / 60}h` : `${minBookingDuration}min`})
+                    </p>
+                  )}
+                  {selectedTimeGap && (
+                    <div className="p-4 bg-gradient-to-r from-green-50 to-blue-50 dark:from-green-950/30 dark:to-blue-950/30 border border-green-500/30 dark:border-green-500/20 rounded-xl shadow-none">
+                      <div className="flex items-center gap-2 mb-2">
+                        <div className="w-3 h-3 bg-green-500 dark:bg-green-400 rounded-full animate-pulse"></div>
+                        <p className="text-sm font-semibold text-green-900 dark:text-green-300">Selected Available Slot Range</p>
+                      </div>
+                      <p className="text-xl font-bold text-green-800 dark:text-green-300 mb-1">
+                        {selectedTimeGap}
+                      </p>
+                      <p className="text-xs text-green-700 dark:text-green-400">
+                        Now choose your exact booking time within this range
+                      </p>
+                    </div>
+                  )}
+                </div>
+
+                {/* Custom Start and End Time Selection */}
+                {selectedTimeGap && (
+                  <div className="col-span-2 grid grid-cols-2 gap-4 pt-4 border-t">
+                    <div className="space-y-2">
+                      <Label htmlFor="customStartTime" className="flex items-center gap-2 dark:text-foreground">
+                        <Clock className="h-4 w-4" />
+                        Booking Start Time *
+                      </Label>
+                      <Select
+                        value={formData.startTime}
+                        onValueChange={(value) => {
+                          setFormData({
+                            ...formData,
+                            startTime: value,
+                            endTime: '' // Reset end time when start changes
+                          })
+                        }}
+                      >
+                        <SelectTrigger className="h-12 bg-slate-50/30 dark:bg-slate-950/10 border-slate-200 dark:border-slate-800/60 focus:border-blue-500 dark:focus:border-blue-400 focus:ring-0 rounded-xl transition-all">
+                          <SelectValue placeholder="Select start time" />
+                        </SelectTrigger>
+                        <SelectContent className="max-h-[300px] dark:bg-card dark:border-border">
+                          {availableStartTimes.map((time) => (
+                            <SelectItem key={time} value={time} className="py-3 dark:text-foreground dark:hover:bg-muted">
+                              <span className="font-semibold">{time}</span>
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <p className="text-xs text-muted-foreground dark:text-muted-foreground">
+                        Choose any start time within the selected slot (30-min intervals)
+                      </p>
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label htmlFor="customEndTime" className="flex items-center gap-2">
+                        <Clock className="h-4 w-4" />
+                        Booking End Time *
+                      </Label>
+                      <Select
+                        value={formData.endTime}
+                        onValueChange={(value) => {
+                          setFormData({
+                            ...formData,
+                            endTime: value
+                          })
+                        }}
+                        disabled={!formData.startTime}
+                      >
+                        <SelectTrigger className="h-12">
+                          <SelectValue placeholder={
+                            !formData.startTime ? "Select start time first" : "Select end time"
+                          } />
+                        </SelectTrigger>
+                        <SelectContent className="max-h-[300px]">
+                          {availableEndTimes.length === 0 ? (
+                            <div className="p-4 text-center text-sm text-muted-foreground">
+                              Select start time first
+                            </div>
+                          ) : (
+                            availableEndTimes.map((time) => {
+                              const startMin = parseInt(formData.startTime.split(':')[0]) * 60 + parseInt(formData.startTime.split(':')[1])
+                              const endMin = parseInt(time.split(':')[0]) * 60 + parseInt(time.split(':')[1])
+                              const durationMin = endMin - startMin
+                              const hours = Math.floor(durationMin / 60)
+                              const mins = durationMin % 60
+                              const durationText = hours > 0 && mins > 0 ? `${hours}h ${mins}min` :
+                                hours > 0 ? `${hours}h` : `${mins}min`
+
+                              return (
+                                <SelectItem key={time} value={time} className="py-3">
+                                  <div className="flex items-center justify-between w-full gap-6">
+                                    <span className="font-semibold">{time}</span>
+                                    <Badge variant="outline" className="bg-blue-50 text-blue-700">
+                                      {durationText}
+                                    </Badge>
+                                  </div>
+                                </SelectItem>
+                              )
+                            })
+                          )}
+                        </SelectContent>
+                      </Select>
+                      <p className="text-xs text-muted-foreground">
+                        Minimum duration: {minBookingDuration >= 60 ? `${minBookingDuration / 60}h` : `${minBookingDuration}min`}
+                      </p>
+                    </div>
+
+                    {formData.startTime && formData.endTime && (
+                      <div className="col-span-2 p-4 bg-blue-50 dark:bg-blue-950/30 border border-blue-500/30 dark:border-blue-500/20 rounded-xl shadow-none">
+                        <div className="flex items-center gap-2 mb-2">
+                          <Clock className="h-4 w-4 text-blue-700 dark:text-blue-400" />
+                          <p className="text-sm font-semibold text-blue-900 dark:text-blue-300">Final Booking Time</p>
+                        </div>
+                        <p className="text-2xl font-bold text-blue-800 dark:text-blue-300">
+                          {formData.startTime} - {formData.endTime}
+                        </p>
+                        <p className="text-sm text-blue-700 dark:text-blue-400 mt-1">
+                          Duration: {(() => {
+                            const startMin = parseInt(formData.startTime.split(':')[0]) * 60 + parseInt(formData.startTime.split(':')[1])
+                            const endMin = parseInt(formData.endTime.split(':')[0]) * 60 + parseInt(formData.endTime.split(':')[1])
+                            const durationMin = endMin - startMin
+                            const hours = Math.floor(durationMin / 60)
+                            const mins = durationMin % 60
+                            return hours > 0 && mins > 0 ? `${hours} hour${hours > 1 ? 's' : ''} ${mins} minutes` :
+                              hours > 0 ? `${hours} hour${hours > 1 ? 's' : ''}` : `${mins} minutes`
+                          })()}
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Right Column - Quick Info */}
+          <Card className="bg-white/60 dark:bg-slate-900/10 border border-slate-200 dark:border-slate-800/60 rounded-2xl hover:border-blue-500/20 dark:hover:border-blue-500/30 transition-all duration-300 shadow-none">
+            <CardHeader className="border-b border-slate-100 dark:border-slate-800/50 pb-4">
+              <CardTitle className="text-sm dark:text-foreground">Booking Summary</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3 text-sm pt-6 bg-transparent">
+              <div>
+                <p className="text-muted-foreground">Date</p>
+                <p className="font-semibold">{formData.date || '—'}</p>
+              </div>
+              <div>
+                <p className="text-muted-foreground">Place</p>
+                <p className="font-semibold">
+                  {availablePlaces.find(p => p.id === formData.place)?.name || '—'}
+                </p>
+              </div>
+              <div>
+                <p className="text-muted-foreground">Time</p>
+                <p className="font-semibold">
+                  {formData.startTime && formData.endTime ?
+                    `${formData.startTime} - ${formData.endTime}` : '—'}
+                </p>
+              </div>
+              <div>
+                <p className="text-muted-foreground">Responsible Person</p>
+                <p className="font-semibold">
+                  {formData.responsiblePerson?.name || '—'}
+                </p>
+              </div>
+              <div>
+                <p className="text-muted-foreground">Participants</p>
+                <p className="font-semibold">
+                  {formData.selectedEmployees.length + formData.externalParticipants.length}
+                </p>
+              </div>
+              <div>
+                <p className="text-muted-foreground">Refreshments</p>
+                <p className="font-semibold">
+                  {formData.refreshments.required ? 'Yes' : 'No'}
+                </p>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Responsible Person Section */}
+        <Card className="bg-white/60 dark:bg-slate-900/10 border border-slate-200 dark:border-slate-800/60 rounded-2xl hover:border-blue-500/20 dark:hover:border-blue-500/30 transition-all duration-300 shadow-none">
+          <CardHeader className="border-b border-slate-100 dark:border-slate-800/50 pb-4">
+            <CardTitle className="flex items-center gap-2 dark:text-foreground">
+              <Users className="h-5 w-5" />
+              Responsible Person *
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4 pt-6 bg-transparent">
+            {formData.responsiblePerson && (
+              <div className="p-4 bg-primary/5 dark:bg-primary/10 border-2 border-primary/20 dark:border-primary/30 rounded-lg">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <Avatar className="h-10 w-10 border-2 border-primary dark:border-primary">
+                      <AvatarFallback className="bg-primary text-primary-foreground dark:bg-primary dark:text-primary-foreground font-semibold">
+                        {formData.responsiblePerson.name ? formData.responsiblePerson.name.split(' ').map(n => n[0]).join('').substring(0, 2) : 'U'}
+                      </AvatarFallback>
+                    </Avatar>
+                    <div>
+                      <p className="font-semibold dark:text-foreground">{formData.responsiblePerson.name}</p>
+                      <p className="text-xs text-muted-foreground dark:text-muted-foreground">{formData.responsiblePerson.email}</p>
+                      <Badge variant="outline" className="mt-1 text-xs dark:border-border">{formData.responsiblePerson.role}</Badge>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {!formData.responsiblePerson && (
+              <p className="text-sm text-muted-foreground dark:text-muted-foreground text-center py-4 border-2 border-dashed rounded-lg dark:border-border">
+                Loading responsible person details...
+              </p>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Participants Section */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {/* Internal Participants */}
+          <Card className="bg-white/60 dark:bg-slate-900/10 border border-slate-200 dark:border-slate-800/60 rounded-2xl hover:border-blue-500/20 dark:hover:border-blue-500/30 transition-all duration-300 shadow-none">
+            <CardHeader className="border-b border-slate-100 dark:border-slate-800/50 pb-4">
+              <CardTitle className="flex items-center gap-2 dark:text-foreground">
+                <Users className="h-5 w-5" />
+                Employee Participants (Optional)
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4 pt-6 bg-transparent">
+              <div className="space-y-2">
+                <Label className="dark:text-foreground">Search Employees</Label>
+                <div className="relative">
+                  <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground dark:text-muted-foreground" />
+                  <Input
+                    placeholder="Search by name or email..."
+                    value={employeeSearch}
+                    onChange={(e) => setEmployeeSearch(e.target.value)}
+                    className="pl-10 bg-slate-50/30 dark:bg-slate-950/10 border-slate-200 dark:border-slate-800/60 focus:border-blue-500 dark:focus:border-blue-400 focus:ring-0 rounded-xl transition-all"
+                  />
+                </div>
+              </div>
+
+              {employeeSearch && (
+                <div className="max-h-60 overflow-y-auto border rounded-md dark:border-border dark:bg-card">
+                  {users
+                    .filter(user =>
+                      // Show both admin and staff as participants
+                      // System only has admin and staff roles
+                      (user.role === 'admin' || user.user_role === 'admin' ||
+                        user.role === 'staff' || user.user_role === 'staff') &&
+                      (user.full_name.toLowerCase().includes(employeeSearch.toLowerCase()) ||
+                        user.email.toLowerCase().includes(employeeSearch.toLowerCase()))
+                    )
+                    .filter(user => !formData.selectedEmployees.some(e => e.id === user.id))
+                    .map(user => (
+                      <div
+                        key={user.id}
+                        className="p-3 cursor-pointer hover:bg-muted dark:hover:bg-muted/50 transition-colors dark:text-foreground"
+                        onClick={() => selectEmployee(user)}
+                      >
+                        <p className="font-medium text-sm dark:text-foreground">{user.full_name}</p>
+                        <p className="text-xs text-muted-foreground dark:text-muted-foreground">{user.email} • {user.role}</p>
+                      </div>
+                    ))}
+                </div>
+              )}
+
+              <div className="space-y-2">
+                <Label className="dark:text-foreground">Selected Employees ({formData.selectedEmployees.length})</Label>
+                <div className="space-y-2 max-h-60 overflow-y-auto">
+                  {formData.selectedEmployees.map((employee) => (
+                    <div key={employee.id} className="flex items-center justify-between p-3 bg-muted dark:bg-muted/50 rounded-md">
+                      <div className="flex items-center gap-3">
+                        <Avatar className="h-8 w-8">
+                          <AvatarFallback className="text-xs dark:bg-primary/20 dark:text-primary">
+                            {employee.name.split(' ').map(n => n[0]).join('').substring(0, 2)}
+                          </AvatarFallback>
+                        </Avatar>
+                        <div>
+                          <p className="font-medium text-sm dark:text-foreground">{employee.name}</p>
+                          <p className="text-xs text-muted-foreground dark:text-muted-foreground">{employee.email}</p>
+                        </div>
+                      </div>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => removeEmployee(employee.id)}
+                        className="dark:hover:bg-muted"
+                      >
+                        <X className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  ))}
+                  {formData.selectedEmployees.length === 0 && (
+                    <p className="text-sm text-muted-foreground dark:text-muted-foreground text-center py-4">
+                      No employees selected
+                    </p>
+                  )}
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* External Participants */}
+          <Card className="bg-white/60 dark:bg-slate-900/10 border border-slate-200 dark:border-slate-800/60 rounded-2xl hover:border-blue-500/20 dark:hover:border-blue-500/30 transition-all duration-300 shadow-none">
+            <CardHeader className="border-b border-slate-100 dark:border-slate-800/50 pb-4">
+              <CardTitle className="dark:text-foreground">External Participants</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4 pt-6 bg-transparent">
+              {/* Search Existing Members */}
+              <div className="space-y-2 p-4 bg-blue-50/30 dark:bg-blue-950/5 border border-blue-500/20 dark:border-blue-800/40 rounded-xl shadow-none">
+                <Label className="text-blue-900 dark:text-blue-300 font-semibold">🔍 Search Existing Members</Label>
+                <div className="relative">
+                  <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground dark:text-muted-foreground" />
+                  <Input
+                    placeholder="Search by name, email, phone, or company..."
+                    value={memberSearch}
+                    onChange={(e) => {
+                      setMemberSearch(e.target.value)
+                      searchExternalMembers(e.target.value)
+                      setShowMemberDropdown(true)
+                    }}
+                    onFocus={() => memberSearch.length >= 2 && setShowMemberDropdown(true)}
+                    className="pl-10 bg-slate-50/30 dark:bg-slate-950/10 border-slate-200 dark:border-slate-800/60 focus:border-blue-500 dark:focus:border-blue-400 focus:ring-0 rounded-xl transition-all"
+                  />
+                </div>
+                {showMemberDropdown && searchedMembers.length > 0 && (
+                  <div className="max-h-60 overflow-y-auto border rounded-md bg-white/95 dark:bg-slate-950/95 border border-slate-200 dark:border-slate-800 backdrop-blur-md rounded-xl shadow-none">
+                    {searchedMembers.map(member => (
+                      <div
+                        key={member.id}
+                        className="p-3 cursor-pointer hover:bg-blue-50 dark:hover:bg-blue-950/30 transition-colors border-b dark:border-border last:border-b-0"
+                        onClick={() => selectExistingMember(member)}
+                      >
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <p className="font-medium text-sm dark:text-foreground">{member.full_name}</p>
+                            <p className="text-xs text-muted-foreground dark:text-muted-foreground">{member.email} • {member.phone}</p>
+                            {member.company_name && (
+                              <p className="text-xs text-blue-600 dark:text-blue-400">{member.company_name} • {member.designation}</p>
+                            )}
+                          </div>
+                          <Badge variant="outline" className="bg-green-50 dark:bg-green-950/30 dark:border-green-800 dark:text-green-300">
+                            {member.visit_count} visits
+                          </Badge>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <p className="text-xs text-blue-700 dark:text-blue-400">
+                  🔍 Search for existing members to auto-fill details and track visits
+                </p>
+              </div>
+
+              {/* OR Divider */}
+              <div className="relative">
+                <div className="absolute inset-0 flex items-center">
+                  <span className="w-full border-t dark:border-border" />
+                </div>
+                <div className="relative flex justify-center text-xs uppercase">
+                  <span className="bg-white dark:bg-card px-2 text-muted-foreground dark:text-muted-foreground">Or Add New Member</span>
+                </div>
+              </div>
+
+              {/* Add New Member Form */}
+              <div className="grid grid-cols-2 gap-3">
+                <div className="col-span-2 space-y-2">
+                  <Label className="dark:text-foreground">Full Name *</Label>
+                  <Input
+                    value={newExternalParticipant.fullName}
+                    onChange={(e) => setNewExternalParticipant({ ...newExternalParticipant, fullName: e.target.value })}
+                    placeholder="Enter full name"
+                    className="bg-slate-50/30 dark:bg-slate-950/10 border-slate-200 dark:border-slate-800/60 focus:border-blue-500 dark:focus:border-blue-400 focus:ring-0 rounded-xl transition-all"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label className="dark:text-foreground">Email</Label>
+                  <Input
+                    type="email"
+                    value={newExternalParticipant.email}
+                    onChange={(e) => setNewExternalParticipant({ ...newExternalParticipant, email: e.target.value })}
+                    placeholder="email@example.com"
+                    className="bg-slate-50/30 dark:bg-slate-950/10 border-slate-200 dark:border-slate-800/60 focus:border-blue-500 dark:focus:border-blue-400 focus:ring-0 rounded-xl transition-all"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label className="dark:text-foreground">Phone *</Label>
+                  <Input
+                    value={newExternalParticipant.phone}
+                    onChange={(e) => setNewExternalParticipant({ ...newExternalParticipant, phone: e.target.value })}
+                    placeholder="+1234567890"
+                    className="bg-slate-50/30 dark:bg-slate-950/10 border-slate-200 dark:border-slate-800/60 focus:border-blue-500 dark:focus:border-blue-400 focus:ring-0 rounded-xl transition-all"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label className="dark:text-foreground">Reference Type *</Label>
+                  <Select
+                    value={newExternalParticipant.referenceType}
+                    onValueChange={(value: any) => setNewExternalParticipant({ ...newExternalParticipant, referenceType: value })}
+                  >
+                    <SelectTrigger className="bg-slate-50/30 dark:bg-slate-950/10 border-slate-200 dark:border-slate-800/60 focus:border-blue-500 dark:focus:border-blue-400 focus:ring-0 rounded-xl transition-all">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent className="dark:bg-card dark:border-border">
+                      <SelectItem value="NIC" className="dark:text-foreground dark:hover:bg-muted">NIC</SelectItem>
+                      <SelectItem value="Passport" className="dark:text-foreground dark:hover:bg-muted">Passport</SelectItem>
+                      <SelectItem value="Employee ID" className="dark:text-foreground dark:hover:bg-muted">Employee ID</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label className="dark:text-foreground">Reference Value *</Label>
+                  <Input
+                    value={newExternalParticipant.referenceValue}
+                    onChange={(e) => setNewExternalParticipant({ ...newExternalParticipant, referenceValue: e.target.value })}
+                    placeholder="Enter ID number"
+                    className="bg-slate-50/30 dark:bg-slate-950/10 border-slate-200 dark:border-slate-800/60 focus:border-blue-500 dark:focus:border-blue-400 focus:ring-0 rounded-xl transition-all"
+                  />
+                </div>
+                <div className="col-span-2">
+                  <Button type="button" onClick={addExternalParticipant} className="w-full bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 dark:from-blue-500 dark:to-purple-500 dark:hover:from-blue-600 dark:hover:to-purple-600 shadow-none border border-blue-400/20">
+                    Add External Participant
+                  </Button>
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label className="dark:text-foreground">Added External Participants ({formData.externalParticipants.length})</Label>
+                <div className="space-y-2 max-h-60 overflow-y-auto">
+                  {formData.externalParticipants.map((participant) => (
+                    <div key={participant.id} className="flex items-center justify-between p-3 bg-muted dark:bg-muted/50 rounded-md">
+                      <div className="flex-1">
+                        <p className="font-medium text-sm dark:text-foreground">{participant.fullName}</p>
+                        <p className="text-xs text-muted-foreground dark:text-muted-foreground">
+                          {participant.referenceType}: {participant.referenceValue} • {participant.phone}
+                        </p>
+                        {participant.email && (
+                          <p className="text-xs text-muted-foreground dark:text-muted-foreground">{participant.email}</p>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleEditExternalMember(participant)}
+                          title="Edit member details"
+                          className="h-8 w-8 p-0 dark:hover:bg-muted"
+                        >
+                          <Edit className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => removeExternalParticipant(participant.id)}
+                          title="Remove participant"
+                          className="h-8 w-8 p-0 dark:hover:bg-muted"
+                        >
+                          <X className="h-4 w-4 text-red-500 dark:text-red-400" />
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                  {formData.externalParticipants.length === 0 && (
+                    <p className="text-sm text-muted-foreground dark:text-muted-foreground text-center py-4">
+                      No external participants added
+                    </p>
+                  )}
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Refreshments Section */}
+        <Card className="bg-white/60 dark:bg-slate-900/10 border border-slate-200 dark:border-slate-800/60 rounded-2xl hover:border-blue-500/20 dark:hover:border-blue-500/30 transition-all duration-300 shadow-none">
+          <CardHeader className="border-b border-slate-100 dark:border-slate-800/50 pb-4">
+            <CardTitle className="flex items-center gap-2 dark:text-foreground">
+              <Utensils className="h-5 w-5" />
+              Refreshments
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4 pt-6 bg-transparent">
+            <div className="flex items-center space-x-2">
+              <input
+                type="checkbox"
+                id="refreshmentsRequired"
+                checked={formData.refreshments.required}
+                onChange={(e) =>
+                  setFormData({
+                    ...formData,
+                    refreshments: {
+                      ...formData.refreshments,
+                      required: e.target.checked,
+                    },
+                  })
+                }
+                className="h-4 w-4 dark:accent-primary"
+              />
+              <Label htmlFor="refreshmentsRequired" className="cursor-pointer dark:text-foreground">
+                Refreshments Required
+              </Label>
+            </div>
+
+            {formData.refreshments.required && (
+              <div className="grid grid-cols-3 gap-4">
+                <div className="space-y-2">
+                  <Label className="dark:text-foreground">Type</Label>
+                  <Select
+                    value={formData.refreshments.type}
+                    onValueChange={(value) =>
+                      setFormData({
+                        ...formData,
+                        refreshments: { ...formData.refreshments, type: value },
+                      })
+                    }
+                  >
+                    <SelectTrigger className="bg-slate-50/30 dark:bg-slate-950/10 border-slate-200 dark:border-slate-800/60 focus:border-blue-500 dark:focus:border-blue-400 focus:ring-0 rounded-xl transition-all">
+                      <SelectValue placeholder="Select type" />
+                    </SelectTrigger>
+                    <SelectContent className="dark:bg-card dark:border-border">
+                      {refreshmentTypes.length > 0 ? (
+                        refreshmentTypes.map((type) => (
+                          <SelectItem key={type.id} value={type.code} className="dark:text-foreground dark:hover:bg-muted">
+                            {type.name}
+                          </SelectItem>
+                        ))
+                      ) : (
+                        <>
+                          <SelectItem value="beverages" className="dark:text-foreground dark:hover:bg-muted">Beverages</SelectItem>
+                          <SelectItem value="light_snacks" className="dark:text-foreground dark:hover:bg-muted">Light Snacks</SelectItem>
+                          <SelectItem value="full_meal" className="dark:text-foreground dark:hover:bg-muted">Full Meal</SelectItem>
+                          <SelectItem value="custom" className="dark:text-foreground dark:hover:bg-muted">Custom</SelectItem>
+                        </>
+                      )}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="space-y-2">
+                  <Label className="dark:text-foreground">Serving Time</Label>
+                  <Select
+                    value={formData.refreshments.servingTime}
+                    onValueChange={(value) =>
+                      setFormData({
+                        ...formData,
+                        refreshments: { ...formData.refreshments, servingTime: value },
+                      })
+                    }
+                    disabled={servingTimeOptions.length === 0}
+                  >
+                    <SelectTrigger className="bg-slate-50/30 dark:bg-slate-950/10 border-slate-200 dark:border-slate-800/60 focus:border-blue-500 dark:focus:border-blue-400 focus:ring-0 rounded-xl transition-all">
+                      <SelectValue placeholder={
+                        servingTimeOptions.length === 0
+                          ? "Select booking time first"
+                          : "Select serving time"
+                      } />
+                    </SelectTrigger>
+                    <SelectContent className="max-h-[300px] dark:bg-card dark:border-border">
+                      {servingTimeOptions.length === 0 ? (
+                        <div className="p-4 text-center text-sm text-muted-foreground dark:text-muted-foreground">
+                          Select booking start and end time first
+                        </div>
+                      ) : (
+                        servingTimeOptions.map((time) => (
+                          <SelectItem key={time} value={time} className="dark:text-foreground dark:hover:bg-muted">
+                            {time}
+                          </SelectItem>
+                        ))
+                      )}
+                    </SelectContent>
+                  </Select>
+                  {servingTimeOptions.length > 0 && (
+                    <p className="text-xs text-muted-foreground dark:text-muted-foreground">
+                      {servingTimeOptions.length} time options (15-min intervals, last: {servingTimeOptions[servingTimeOptions.length - 1]})
+                    </p>
+                  )}
+                </div>
+
+                <div className="space-y-2">
+                  <Label className="dark:text-foreground">Estimated Count</Label>
+                  <Input
+                    type="number"
+                    min="1"
+                    value={formData.refreshments.estimatedCount}
+                    onChange={(e) =>
+                      setFormData({
+                        ...formData,
+                        refreshments: { ...formData.refreshments, estimatedCount: parseInt(e.target.value) || 0 },
+                      })
+                    }
+                    className="bg-slate-50/30 dark:bg-slate-950/10 border-slate-200 dark:border-slate-800/60 focus:border-blue-500 dark:focus:border-blue-400 focus:ring-0 rounded-xl transition-all"
+                  />
+                </div>
+
+                <div className="col-span-3 space-y-2">
+                  <Label className="dark:text-foreground">Items</Label>
+                  <div className="flex flex-wrap gap-2 mb-2">
+                    {formData.refreshments.items.map((item) => (
+                      <Badge key={item} variant="secondary" className="flex items-center gap-1 dark:bg-muted dark:text-foreground">
+                        {item}
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            e.preventDefault()
+                            console.log('Removing item:', item)
+                            removeRefreshmentItem(item)
+                          }}
+                          className="ml-1 hover:text-red-500 dark:hover:text-red-400 transition-colors cursor-pointer"
+                        >
+                          <X className="h-3 w-3" />
+                        </button>
+                      </Badge>
+                    ))}
+                  </div>
+                  <Select
+                    value={selectedRefreshmentItem}
+                    onValueChange={(value) => {
+                      addRefreshmentItem(value)
+                      setSelectedRefreshmentItem("")
+                    }}
+                    disabled={!formData.refreshments.type || availableItemsForType.filter(item => !formData.refreshments.items.includes(item.name)).length === 0}
+                  >
+                    <SelectTrigger className="bg-slate-50/30 dark:bg-slate-950/10 border-slate-200 dark:border-slate-800/60 focus:border-blue-500 dark:focus:border-blue-400 focus:ring-0 rounded-xl transition-all">
+                      <SelectValue placeholder={
+                        !formData.refreshments.type
+                          ? "Select type first"
+                          : availableItemsForType.filter(item => !formData.refreshments.items.includes(item.name)).length === 0
+                            ? "No more items available"
+                            : "Add item"
+                      } />
+                    </SelectTrigger>
+                    <SelectContent className="dark:bg-card dark:border-border">
+                      {availableItemsForType.length > 0 ? (
+                        availableItemsForType
+                          .filter(item => !formData.refreshments.items.includes(item.name))
+                          .map((item) => (
+                            <SelectItem key={item.id} value={item.name} className="dark:text-foreground dark:hover:bg-muted">
+                              {item.name}
+                            </SelectItem>
+                          ))
+                      ) : (
+                        <>
+                          {!formData.refreshments.items.includes("Coffee") && (
+                            <SelectItem value="Coffee" className="dark:text-foreground dark:hover:bg-muted">Coffee</SelectItem>
+                          )}
+                          {!formData.refreshments.items.includes("Tea") && (
+                            <SelectItem value="Tea" className="dark:text-foreground dark:hover:bg-muted">Tea</SelectItem>
+                          )}
+                          {!formData.refreshments.items.includes("Water") && (
+                            <SelectItem value="Water" className="dark:text-foreground dark:hover:bg-muted">Water</SelectItem>
+                          )}
+                          {!formData.refreshments.items.includes("Juice") && (
+                            <SelectItem value="Juice" className="dark:text-foreground dark:hover:bg-muted">Juice</SelectItem>
+                          )}
+                          {!formData.refreshments.items.includes("Cookies") && (
+                            <SelectItem value="Cookies" className="dark:text-foreground dark:hover:bg-muted">Cookies</SelectItem>
+                          )}
+                          {!formData.refreshments.items.includes("Sandwiches") && (
+                            <SelectItem value="Sandwiches" className="dark:text-foreground dark:hover:bg-muted">Sandwiches</SelectItem>
+                          )}
+                          {!formData.refreshments.items.includes("Lunch") && (
+                            <SelectItem value="Lunch" className="dark:text-foreground dark:hover:bg-muted">Lunch</SelectItem>
+                          )}
+                        </>
+                      )}
+                    </SelectContent>
+                  </Select>
+                  {formData.refreshments.type && availableItemsForType.length === 0 && (
+                    <p className="text-xs text-muted-foreground dark:text-muted-foreground">
+                      No items available for this type.
+                    </p>
+                  )}
+                </div>
+
+                <div className="col-span-3 space-y-2">
+                  <Label className="dark:text-foreground">Special Requests</Label>
+                  <Textarea
+                    value={formData.refreshments.specialRequests}
+                    onChange={(e) =>
+                      setFormData({
+                        ...formData,
+                        refreshments: { ...formData.refreshments, specialRequests: e.target.value },
+                      })
+                    }
+                    placeholder="Any special requirements..."
+                    rows={2}
+                    className="bg-slate-50/30 dark:bg-slate-950/10 border-slate-200 dark:border-slate-800/60 focus:border-blue-500 dark:focus:border-blue-400 focus:ring-0 rounded-xl transition-all"
+                  />
+                </div>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Participant Email Notification Section */}
+        <Card className="bg-white/60 dark:bg-slate-900/10 border border-slate-200 dark:border-slate-800/60 rounded-2xl hover:border-blue-500/20 dark:hover:border-blue-500/30 transition-all duration-300 shadow-none">
+          <CardHeader className="border-b border-slate-100 dark:border-slate-800/50 pb-4">
+            <CardTitle className="flex items-center gap-2 dark:text-foreground">
+              <Users className="h-5 w-5" />
+              Email Notifications
+            </CardTitle>
+            <p className="text-sm text-muted-foreground dark:text-muted-foreground">
+              Select participants to receive email notifications about this meeting
+            </p>
+          </CardHeader>
+          <CardContent className="space-y-4 pt-6 bg-transparent">
+            {/* Check All/Uncheck All */}
+            <div className="flex items-center justify-between p-3 bg-gray-50 dark:bg-muted rounded-lg">
+              <div className="flex items-center space-x-2">
+                <input
+                  type="checkbox"
+                  id="selectAllParticipants"
+                  checked={getAllParticipants().length > 0 && getAllParticipants().every(p => selectedEmailParticipants.includes(p.email))}
+                  onChange={handleSelectAllParticipants}
+                  className="h-4 w-4 dark:accent-primary"
+                />
+                <Label htmlFor="selectAllParticipants" className="cursor-pointer font-medium dark:text-foreground">
+                  Select All Participants
+                </Label>
+              </div>
+              <Badge variant="outline" className="dark:border-border dark:text-foreground">
+                {selectedEmailParticipants.length} of {getAllParticipants().length} selected
+              </Badge>
+            </div>
+
+            {/* Participants List */}
+            <div className="space-y-3 max-h-60 overflow-y-auto">
+              {getAllParticipants().map((participant, index) => (
+                <div key={`${participant.type}-${index}`} className="flex items-center justify-between p-3 border rounded-lg hover:bg-gray-50 dark:border-border dark:hover:bg-muted/50 dark:text-foreground">
+                  <div className="flex items-center space-x-3">
+                    <input
+                      type="checkbox"
+                      id={`participant-${index}`}
+                      checked={selectedEmailParticipants.includes(participant.email)}
+                      onChange={(e) => handleParticipantEmailSelection(participant.email, e.target.checked)}
+                      className="h-4 w-4 dark:accent-primary"
+                    />
+                    <div className="flex items-center space-x-2">
+                      <Avatar className="h-8 w-8">
+                        <AvatarFallback className="text-xs dark:bg-primary/20 dark:text-primary">
+                          {participant.name.split(' ').map(n => n[0]).join('').toUpperCase()}
+                        </AvatarFallback>
+                      </Avatar>
+                      <div>
+                        <p className="font-medium text-sm dark:text-foreground">{participant.name}</p>
+                        <p className="text-xs text-muted-foreground dark:text-muted-foreground">{participant.email}</p>
+                      </div>
+                    </div>
+                  </div>
+                  <Badge
+                    variant={participant.type === 'responsible' ? 'default' : participant.type === 'internal' ? 'secondary' : 'outline'}
+                    className="text-xs dark:border-border"
+                  >
+                    {participant.type === 'responsible' ? 'Responsible' :
+                      participant.type === 'internal' ? 'Internal' : 'External'}
+                  </Badge>
+                </div>
+              ))}
+            </div>
+
+            {getAllParticipants().length === 0 && (
+              <div className="text-center py-8 text-muted-foreground dark:text-muted-foreground">
+                <Users className="h-12 w-12 mx-auto mb-2 opacity-50" />
+                <p>No participants added yet</p>
+                <p className="text-xs">Add participants above to enable email notifications</p>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Action Buttons */}
+        <div className="flex justify-end gap-4">
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => setIsCancelConfirmDialogOpen(true)}
+            disabled={isSubmitting}
+            className="dark:border-border dark:hover:bg-muted dark:text-foreground"
+          >
+            Cancel
+          </Button>
+          <Button
+            type="submit"
+            disabled={isSubmitting}
+            className="min-w-[200px] bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 dark:from-blue-500 dark:to-purple-500 dark:hover:from-blue-600 dark:hover:to-purple-600 shadow-none border border-blue-400/20"
+          >
+            {isSubmitting ? (
+              <>
+                <span className="animate-spin mr-2">⏳</span>
+                Creating Booking...
+              </>
+            ) : (
+              <>
+                <Save className="h-4 w-4 mr-2" />
+                Create Booking
+              </>
+            )}
+          </Button>
+        </div>
+      </form>
+
+      {/* Cancel Confirmation Dialog */}
+      <Dialog open={isCancelConfirmDialogOpen} onOpenChange={setIsCancelConfirmDialogOpen}>
+        <DialogContent className="dark:bg-card dark:border-border">
+          <DialogHeader>
+            <DialogTitle className="dark:text-foreground">Cancel Booking Creation</DialogTitle>
+            <DialogDescription className="dark:text-muted-foreground">
+              Are you sure you want to cancel? All unsaved changes will be lost.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2">
+            <Button
+              variant="outline"
+              onClick={() => setIsCancelConfirmDialogOpen(false)}
+              className="dark:border-border dark:hover:bg-muted dark:text-foreground"
+            >
+              No, Keep Editing
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() => {
+                setIsCancelConfirmDialogOpen(false)
+                router.push('/staff/bookings')
+              }}
+              className="dark:bg-red-600 dark:hover:bg-red-700"
+            >
+              Yes, Cancel
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Create Booking Confirmation Dialog */}
+      <Dialog open={isCreateConfirmDialogOpen} onOpenChange={setIsCreateConfirmDialogOpen}>
+        <DialogContent className="dark:bg-card dark:border-border">
+          <DialogHeader>
+            <DialogTitle className="dark:text-foreground">Create Booking</DialogTitle>
+            <DialogDescription className="dark:text-muted-foreground">
+              Are you sure you want to create this booking? This will send email notifications to selected participants.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2">
+            <Button
+              variant="outline"
+              onClick={() => setIsCreateConfirmDialogOpen(false)}
+              disabled={isSubmitting}
+              className="dark:border-border dark:hover:bg-muted dark:text-foreground"
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={() => {
+                setIsCreateConfirmDialogOpen(false)
+                handleCreateBooking()
+              }}
+              disabled={isSubmitting}
+              className="min-w-[100px] bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 dark:from-blue-500 dark:to-purple-500 dark:hover:from-blue-600 dark:hover:to-purple-600"
+            >
+              {isSubmitting ? (
+                <>
+                  <span className="animate-spin mr-2">⏳</span>
+                  Creating...
+                </>
+              ) : (
+                'Create Booking'
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit External Member Dialog */}
+      <Dialog open={isEditMemberDialogOpen} onOpenChange={setIsEditMemberDialogOpen}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Edit External Member</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label>Full Name *</Label>
+                <Input
+                  value={editingMemberFormData.full_name}
+                  onChange={(e) => setEditingMemberFormData({ ...editingMemberFormData, full_name: e.target.value })}
+                  required
+                />
+              </div>
+              <div>
+                <Label>Email</Label>
+                <Input
+                  type="email"
+                  value={editingMemberFormData.email}
+                  onChange={(e) => setEditingMemberFormData({ ...editingMemberFormData, email: e.target.value })}
+                />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label>Phone *</Label>
+                <Input
+                  value={editingMemberFormData.phone}
+                  onChange={(e) => setEditingMemberFormData({ ...editingMemberFormData, phone: e.target.value })}
+                  placeholder="+94771234567"
+                  required
+                />
+              </div>
+              <div>
+                <Label>Company</Label>
+                <Input
+                  value={editingMemberFormData.company_name}
+                  onChange={(e) => setEditingMemberFormData({ ...editingMemberFormData, company_name: e.target.value })}
+                />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label>Designation</Label>
+                <Input
+                  value={editingMemberFormData.designation}
+                  onChange={(e) => setEditingMemberFormData({ ...editingMemberFormData, designation: e.target.value })}
+                />
+              </div>
+              <div>
+                <Label>Reference Type *</Label>
+                <Select
+                  value={editingMemberFormData.reference_type}
+                  onValueChange={(v) => setEditingMemberFormData({ ...editingMemberFormData, reference_type: v })}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="NIC">NIC</SelectItem>
+                    <SelectItem value="Passport">Passport</SelectItem>
+                    <SelectItem value="Driving License">Driving License</SelectItem>
+                    <SelectItem value="Employee ID">Employee ID</SelectItem>
+                    <SelectItem value="Other">Other</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div>
+              <Label>Reference Value *</Label>
+              <Input
+                value={editingMemberFormData.reference_value}
+                onChange={(e) => setEditingMemberFormData({ ...editingMemberFormData, reference_value: e.target.value })}
+                placeholder="NIC: 199012345678"
+                required
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label>City</Label>
+                <Input
+                  value={editingMemberFormData.city}
+                  onChange={(e) => setEditingMemberFormData({ ...editingMemberFormData, city: e.target.value })}
+                />
+              </div>
+              <div>
+                <Label>Country</Label>
+                <Input
+                  value={editingMemberFormData.country}
+                  onChange={(e) => setEditingMemberFormData({ ...editingMemberFormData, country: e.target.value })}
+                />
+              </div>
+            </div>
+            <div>
+              <Label>Address</Label>
+              <Textarea
+                value={editingMemberFormData.address}
+                onChange={(e) => setEditingMemberFormData({ ...editingMemberFormData, address: e.target.value })}
+                rows={2}
+              />
+            </div>
+            <div>
+              <Label>Notes</Label>
+              <Textarea
+                value={editingMemberFormData.notes}
+                onChange={(e) => setEditingMemberFormData({ ...editingMemberFormData, notes: e.target.value })}
+                rows={2}
+              />
+            </div>
+            <div className="flex gap-2 justify-end pt-4 border-t">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => {
+                  setIsEditMemberDialogOpen(false)
+                  setEditingExternalMember(null)
+                }}
+                disabled={isUpdatingMember}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                onClick={handleUpdateExternalMember}
+                disabled={isUpdatingMember}
+                className="min-w-[100px]"
+              >
+                {isUpdatingMember ? (
+                  <>
+                    <span className="animate-spin mr-2">⏳</span>
+                    Updating...
+                  </>
+                ) : (
+                  'Update Member'
+                )}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+        </div>
+      </DashboardLayout>
+    </RouteProtection>
+  )
+}
+
